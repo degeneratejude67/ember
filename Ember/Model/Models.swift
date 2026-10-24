@@ -98,7 +98,7 @@ struct StudyApp: Identifiable, Equatable {
     static let all = [
         StudyApp(id: "collanote", name: "CollaNote", icon: "pencil.and.scribble", url: "collanote://"),
         StudyApp(id: "slate", name: "Slate", icon: "book.closed.fill", url: "slate://"),
-        StudyApp(id: "edge", name: "Edge (study guides)", icon: "globe", url: "microsoft-edge-https://"),
+        StudyApp(id: "edge", name: "Edge (study guides)", icon: "globe", url: "microsoft-edge://"),
         StudyApp(id: "files", name: "Files (PDFs)", icon: "folder.fill", url: "shareddocuments://"),
         StudyApp(id: "other", name: "Another app", icon: "square.grid.2x2.fill", url: nil),
     ]
