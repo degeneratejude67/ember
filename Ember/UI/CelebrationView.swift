@@ -235,6 +235,7 @@ struct StreakStep: View {
     let onContinue: () -> Void
     @StateObject private var beats = Beats()
     @State private var shown: Int
+    @State private var shareCard: Image?
 
     init(summary: CompletionSummary, onContinue: @escaping () -> Void) {
         self.summary = summary
@@ -276,6 +277,14 @@ struct StreakStep: View {
                     .opacity(beats.stage >= 4 ? 1 : 0)
                     .disabled(beats.stage < 4)
                     .accessibilityIdentifier("continue")
+                if let card = shareCard, beats.stage >= 4 {
+                    ShareLink(item: card, preview: SharePreview("\(summary.streakAfter)-day streak", image: card)) {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                            .font(.rounded(16, .semibold))
+                            .foregroundStyle(Theme.dim)
+                    }
+                    .accessibilityIdentifier("share-streak")
+                }
             }
             .padding(24)
             .frame(maxWidth: 600)
@@ -287,6 +296,15 @@ struct StreakStep: View {
         .contentShape(Rectangle())
         .onTapGesture { skip() }
         .task { await play() }
+        .onAppear(perform: makeShareCard)
+    }
+
+    /// Milestone days get a square card to share, rendered once.
+    private func makeShareCard() {
+        guard summary.milestone != nil, shareCard == nil else { return }
+        let renderer = ImageRenderer(content: StreakCard(days: summary.streakAfter, tier: summary.tierAfter))
+        renderer.scale = 2
+        shareCard = renderer.uiImage.map { Image(uiImage: $0) }
     }
 
     private var caption: String {
@@ -489,5 +507,32 @@ struct StatTile: View {
         .frame(maxWidth: .infinity, minHeight: 92)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(color.opacity(0.5), lineWidth: 2))
+    }
+}
+
+/// The square card shared on milestone days.
+struct StreakCard: View {
+    let days: Int
+    let tier: FlameTier
+
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [Color(red: 0.12, green: 0.08, blue: 0.07), Theme.bg], startPoint: .top, endPoint: .bottom)
+            VStack(spacing: 6) {
+                EmberMascot(mood: .cheer, tier: tier, animated: false)
+                    .frame(height: 210)
+                Text("\(days)")
+                    .font(.rounded(120, .heavy))
+                    .foregroundStyle(LinearGradient(colors: tier.outer.reversed(), startPoint: .top, endPoint: .bottom))
+                Text("day study streak")
+                    .font(.rounded(34, .heavy))
+                    .foregroundStyle(.white)
+                Text("Ember")
+                    .font(.rounded(22, .bold))
+                    .foregroundStyle(Theme.dim)
+                    .padding(.top, 10)
+            }
+        }
+        .frame(width: 540, height: 540)
     }
 }

@@ -379,4 +379,47 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(s?.parking, ["Email the lab TA"])
         XCTAssertEqual(records(send(&s, .tick, 1501)).first?.parking, ["Email the lab TA"])
     }
+
+    // MARK: - Studying in another app
+
+    private func studyConfig() -> SessionConfig {
+        var c = config()
+        c.studyAppID = "collanote"
+        return c
+    }
+
+    func testTimeInTheStudyAppCountsAsFocus() {
+        var s = started(studyConfig())
+        send(&s, .inactive, 100)
+        let effects = send(&s, .background, 100.5)
+        XCTAssertFalse(effects.contains { if case .schedule(.nudge, _) = $0 { return true } else { return false } })
+        send(&s, .active, 1000)
+        XCTAssertEqual(s?.isFocusing, true)
+        XCTAssertEqual(s?.slips, 0)
+        XCTAssertEqual(records(send(&s, .tick, 1501)).first?.outcome, .completed)
+    }
+
+    func testTheBlockCompletesWhileHeIsStillInTheStudyApp() {
+        var s = started(studyConfig())
+        send(&s, .background, 100)
+        let record = try! XCTUnwrap(records(send(&s, .active, 2000)).first)
+        XCTAssertEqual(record.outcome, .completed)
+        XCTAssertEqual(record.minutes, 25, accuracy: 0.001)
+    }
+
+    func testAFocusGuardBounceIsASlip() {
+        var s = started(studyConfig())
+        send(&s, .distracted, 300)
+        send(&s, .distracted, 600)
+        XCTAssertEqual(s?.slips, 2)
+        XCTAssertEqual(records(send(&s, .tick, 1501)).first?.slips, 2)
+    }
+
+    func testAnOldSavedSessionWithoutAStudyAppStillLoads() throws {
+        let session = try XCTUnwrap(started())
+        var json = try XCTUnwrap(String(data: JSONEncoder.ember.encode(session), encoding: .utf8))
+        json = json.replacingOccurrences(of: "\"studyAppID\" : null,", with: "")
+        let back = try JSONDecoder.ember.decode(ActiveSession.self, from: Data(json.utf8))
+        XCTAssertNil(back.config.studyAppID)
+    }
 }

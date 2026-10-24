@@ -58,6 +58,7 @@ jobs:
             || { grep -E "error:|fatal" build-test.log | sort -u | head -80; tail -30 build-test.log; exit 1; }
 
       - name: Test on iPad simulator
+        timeout-minutes: 30
         run: |
           mkdir -p shots
           STATUS=0
@@ -70,6 +71,7 @@ jobs:
 
       - name: Compact screenshots on iPhone simulator
         if: ${{ !cancelled() }}
+        timeout-minutes: 8
         run: |
           xcrun simctl boot "${{ steps.sim.outputs.iphone }}" || true
           mkdir -p shots/iphone

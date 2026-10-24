@@ -10,6 +10,11 @@ struct SessionConfig: Codable, Equatable {
     /// 60 normally; 1 under `-uitest-fast`, where preset minutes become seconds.
     var secondsPerMinute: Double
     var dayStartHour: Int
+    /// Studying inside another app (CollaNote, Slate...): time away from Ember counts as
+    /// focus, and Focus Guard bounces count as slips.
+    var studyAppID: String?
+
+    var studiesElsewhere: Bool { studyAppID != nil }
 }
 
 enum SessionPhase: String, Codable {
@@ -81,6 +86,8 @@ enum SessionEvent: Equatable {
     /// The app started with a saved session.
     case relaunch
     case addParking(String)
+    /// Focus Guard caught a distracting app (YouTube, games) and sent him back.
+    case distracted
 }
 
 /// Local notifications owned by the session; the raw value is the request identifier.
@@ -259,7 +266,7 @@ enum SessionEngine {
             var away = s.away ?? AwayRecord(inactiveAt: now)
             away.backgroundAt = now
             s.away = away
-            if s.isFocusing && s.config.strictness.polices && away.lockedAt == nil {
+            if s.isFocusing && s.config.strictness.polices && away.lockedAt == nil && !s.config.studiesElsewhere {
                 effects.append(.schedule(.nudge, at: now.wall.addingTimeInterval(nudgeDelay)))
             }
             effects.append(.save)
@@ -301,6 +308,11 @@ enum SessionEngine {
                 s.lockedSeconds += since.seconds(to: now)
                 s.lockedSince = nil
             }
+            effects.append(.save)
+
+        case .distracted:
+            guard s.isFocusing else { return [] }
+            s.slips += 1
             effects.append(.save)
 
         case let .addParking(text):
@@ -417,7 +429,7 @@ enum SessionEngine {
         guard s.isFocusing else { return [] }
         guard let left = away.backgroundAt ?? (relaunch ? away.inactiveAt : nil) else { return [] }
         if let planned = s.plannedSeconds, focusElapsed(s, at: left) >= planned { return [] }
-        if away.lockedAt != nil || !s.config.strictness.polices { return [] }
+        if away.lockedAt != nil || !s.config.strictness.polices || s.config.studiesElsewhere { return [] }
         let gone = left.seconds(to: now)
         if gone <= s.config.graceSeconds {
             s.slips += 1

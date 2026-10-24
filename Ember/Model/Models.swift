@@ -87,6 +87,25 @@ struct Preset: Codable, Identifiable, Equatable, Hashable {
     }
 }
 
+/// An app to study in during a block. Ember opens it with its URL scheme when it has one;
+/// otherwise he switches to it himself.
+struct StudyApp: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let icon: String
+    let url: String?
+
+    static let all = [
+        StudyApp(id: "collanote", name: "CollaNote", icon: "pencil.and.scribble", url: "collanote://"),
+        StudyApp(id: "slate", name: "Slate", icon: "book.closed.fill", url: "slate://"),
+        StudyApp(id: "edge", name: "Edge (study guides)", icon: "globe", url: "microsoft-edge-https://"),
+        StudyApp(id: "files", name: "Files (PDFs)", icon: "folder.fill", url: "shareddocuments://"),
+        StudyApp(id: "other", name: "Another app", icon: "square.grid.2x2.fill", url: nil),
+    ]
+
+    static func find(_ id: String?) -> StudyApp? { all.first { $0.id == id } }
+}
+
 enum TimerStyle: String, Codable, CaseIterable, Identifiable {
     case disc, ring, digits
 

@@ -81,6 +81,9 @@ struct FocusView: View {
             if s.starterConverted && !starterBannerClosed {
                 starterBanner
             }
+            if let app = StudyApp.find(s.config.studyAppID) {
+                studyBanner(app)
+            }
             Spacer(minLength: 8)
             tools(s)
             controls(s, countUp: countUp, paused: paused)
@@ -192,6 +195,28 @@ struct FocusView: View {
         .frame(maxWidth: 480)
     }
 
+    /// Studying in another app: how to get back there, and what still counts.
+    private func studyBanner(_ app: StudyApp) -> some View {
+        Card {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Studying in \(app.name)", systemImage: app.icon)
+                    .font(.rounded(17, .bold))
+                    .foregroundStyle(Theme.text)
+                    .accessibilityIdentifier("study-banner")
+                Text(controller.studyHint ?? "Time in \(app.name) counts as focus. With Focus Guard set up, opening YouTube or a game sends you straight back here.")
+                    .font(.rounded(14, .regular))
+                    .foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+                if app.url != nil {
+                    Button("Back to \(app.name)") { controller.openStudyApp() }
+                        .buttonStyle(ChunkyButtonStyle(color: Theme.teal, lip: Theme.tealDeep, height: 46))
+                        .accessibilityIdentifier("open-study-app")
+                }
+            }
+        }
+        .frame(maxWidth: 480)
+    }
+
     /// Parking lot and focus noise.
     private func tools(_ s: ActiveSession) -> some View {
         HStack(spacing: 12) {
@@ -248,7 +273,7 @@ struct FocusView: View {
     }
 
     @ViewBuilder private func footnote(_ s: ActiveSession) -> some View {
-        if s.config.strictness.polices {
+        if s.config.strictness.polices && !s.config.studiesElsewhere {
             Text("Leaving Ember for more than \(Int(s.config.graceSeconds)) s ends the block. Locking the screen is fine.")
                 .font(.rounded(13, .medium))
                 .foregroundStyle(Theme.dim)

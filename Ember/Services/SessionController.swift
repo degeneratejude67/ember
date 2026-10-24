@@ -11,6 +11,8 @@ final class SessionController: ObservableObject {
     @Published var celebration: CompletionSummary?
     /// The block that just ended early; the unfinished screen shows while this is set.
     @Published var unfinished: Unfinished?
+    /// Shown on the focus screen when the study app could not be opened for him.
+    @Published var studyHint: String?
 
     struct Unfinished: Equatable {
         var record: SessionRecord
@@ -34,6 +36,7 @@ final class SessionController: ObservableObject {
             send(.relaunch)
         }
         LockDetector.shared.onEvent = { [weak self] event in self?.detector(event) }
+        refreshReminders()
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.tick() }
         RunLoop.main.add(timer, forMode: .common)
         ticker = timer
@@ -43,9 +46,11 @@ final class SessionController: ObservableObject {
 
     // MARK: - Commands
 
-    func start(preset: Preset, strictness: Strictness, subjectID: UUID?, intent: String) {
+    func start(preset: Preset, strictness: Strictness, subjectID: UUID?, intent: String, studyApp: StudyApp? = nil) {
         celebration = nil
         unfinished = nil
+        studyHint = nil
+        _ = FocusGuard.takeBounces()
         let config = SessionConfig(
             preset: preset,
             strictness: strictness,
@@ -53,13 +58,37 @@ final class SessionController: ObservableObject {
             intent: intent.trimmingCharacters(in: .whitespacesAndNewlines),
             graceSeconds: AppEnv.value(after: "-uitest-grace").flatMap(Double.init) ?? Double(prefs.graceSeconds),
             secondsPerMinute: AppEnv.secondsPerMinute,
-            dayStartHour: prefs.dayStartHour)
+            dayStartHour: prefs.dayStartHour,
+            studyAppID: studyApp?.id)
         let (session, effects) = SessionEngine.start(config, now: .now())
         self.session = session
         run(effects)
         if UIAccessibility.isGuidedAccessEnabled { send(.guidedAccess(true)) }
         if !AppEnv.isUITest { Notifier.requestAuthorizationIfNeeded() }
         syncNoise()
+        if studyApp != nil {
+            // let the start chime play before switching apps
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.openStudyApp() }
+        }
+    }
+
+    /// Opens the session's study app, or asks him to switch to it when it has no URL scheme
+    /// (or the scheme doesn't work).
+    func openStudyApp() {
+        guard let app = StudyApp.find(session?.config.studyAppID), !AppEnv.isUITest else { return }
+        let manual = "Switch to \(app.name) now. Ember keeps time while you study there."
+        guard let link = app.url, let url = URL(string: link) else {
+            studyHint = manual
+            return
+        }
+        UIApplication.shared.open(url) { [weak self] opened in
+            if !opened { self?.studyHint = manual }
+        }
+    }
+
+    /// Reschedules the streak and re-sign reminders from the current history.
+    func refreshReminders() {
+        Notifier.apply(NotificationPlan.plan(store.data, now: Date(), expiry: Provisioning.expiry))
     }
 
     /// Plays the chosen focus noise while a block runs, and silence otherwise.
@@ -128,8 +157,12 @@ final class SessionController: ObservableObject {
                 send(.lock(.darwin, at: lock))
             }
             store.saveNow()
+            refreshReminders()
         case .active:
             send(.active)
+            // In Ember-only blocks the trip away already counts as a slip; when studying in
+            // another app, the bounce is the only sign of the distraction.
+            for _ in FocusGuard.takeBounces() where session?.config.studiesElsewhere == true { send(.distracted) }
         case let .darwinLock(at):
             lastDarwinLock = at
             send(.lock(.darwin, at: at))
@@ -150,6 +183,7 @@ final class SessionController: ObservableObject {
             case let .record(record):
                 store.data.sessions.append(record)
                 store.saveNow()
+                refreshReminders()
             case let .updateRecord(id, clean):
                 if let i = store.data.sessions.firstIndex(where: { $0.id == id }) {
                     store.data.sessions[i].cleanBreak = clean

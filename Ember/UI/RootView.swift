@@ -16,6 +16,8 @@ struct RootView: View {
                     } else {
                         BreakView(session: session)
                     }
+                } else if !store.data.prefs.onboarded {
+                    OnboardingView()
                 } else {
                     HomeView()
                 }
@@ -36,6 +38,7 @@ struct RootView: View {
     private var screenKey: String {
         if controller.celebration != nil { return "celebration" }
         if controller.unfinished != nil { return "unfinished" }
+        if !store.data.prefs.onboarded { return "onboarding" }
         return controller.session?.phase.rawValue ?? "home"
     }
 }

@@ -12,7 +12,7 @@ struct HomeView: View {
     @FocusState private var intentFocused: Bool
 
     enum HomeSheet: String, Identifiable {
-        case technique, subject, mode, settings, streak
+        case technique, subject, mode, settings, streak, progress, exams, studyApp
         var id: String { rawValue }
     }
 
@@ -41,7 +41,15 @@ struct HomeView: View {
                     .padding(.horizontal, 16)
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 if let exam = today.nextExam {
-                    examChip(exam, subject: data.subject(exam.subjectID))
+                    Button { sheet = .exams } label: { examChip(exam, subject: data.subject(exam.subjectID)) }
+                        .buttonStyle(.plain)
+                } else {
+                    Button { sheet = .exams } label: {
+                        Label("Add your exams", systemImage: "calendar.badge.plus")
+                            .font(.rounded(15, .semibold))
+                            .foregroundStyle(Theme.dim)
+                    }
+                    .accessibilityIdentifier("add-exams")
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
                     ChoiceChip(caption: "Technique", title: "\(preset.name) · \(preset.shortLabel)", identifier: "technique-chip") {
@@ -53,6 +61,10 @@ struct HomeView: View {
                     }
                     ChoiceChip(caption: "Mode", title: data.prefs.strictness.label, identifier: "mode-chip") {
                         sheet = .mode
+                    }
+                    ChoiceChip(caption: "Study in", title: StudyApp.find(data.prefs.studyAppID)?.name ?? "Ember only",
+                               identifier: "study-chip") {
+                        sheet = .studyApp
                     }
                 }
                 TextField("By the end I will…", text: $intent)
@@ -101,6 +113,9 @@ struct HomeView: View {
             case .mode: ModeSheet()
             case .settings: SettingsView()
             case .streak: StreakSheet()
+            case .progress: StatsView()
+            case .exams: ExamsView()
+            case .studyApp: StudyAppSheet()
             }
         }
     }
@@ -116,6 +131,16 @@ struct HomeView: View {
             .accessibilityIdentifier("streak-button")
             Spacer(minLength: 0)
             GoalRing(minutes: today.minutes, goal: today.goal)
+            Button {
+                sheet = .progress
+            } label: {
+                Image(systemName: "chart.bar.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(Theme.dim)
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Progress")
+            .accessibilityIdentifier("progress-button")
             Button {
                 sheet = .settings
             } label: {
@@ -177,7 +202,8 @@ struct HomeView: View {
 
     private func begin(_ preset: Preset, strictness: Strictness) {
         armed = nil
-        controller.start(preset: preset, strictness: strictness, subjectID: store.data.prefs.subjectID, intent: intent)
+        controller.start(preset: preset, strictness: strictness, subjectID: store.data.prefs.subjectID, intent: intent,
+                         studyApp: StudyApp.find(store.data.prefs.studyAppID))
         intent = ""
     }
 }

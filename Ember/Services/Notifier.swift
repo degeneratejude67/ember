@@ -29,6 +29,26 @@ enum Notifier {
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: notice.rawValue, content: body, trigger: trigger))
     }
 
+    /// Replaces the planner's reminders ("r." identifiers) with `plan`.
+    static func apply(_ plan: [PlannedNotice]) {
+        guard !AppEnv.isUITest else { return }
+        let center = UNUserNotificationCenter.current()
+        center.getPendingNotificationRequests { pending in
+            let wanted = Set(plan.map(\.id))
+            let stale = pending.map(\.identifier).filter { $0.hasPrefix("r.") && !wanted.contains($0) }
+            center.removePendingNotificationRequests(withIdentifiers: stale)
+            for notice in plan {
+                let content = UNMutableNotificationContent()
+                content.title = notice.title
+                content.body = notice.body
+                content.sound = UNNotificationSound(named: UNNotificationSoundName(SoundEffect.nudge.fileName))
+                let parts = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: notice.date)
+                let trigger = UNCalendarNotificationTrigger(dateMatching: parts, repeats: false)
+                center.add(UNNotificationRequest(identifier: notice.id, content: content, trigger: trigger))
+            }
+        }
+    }
+
     static func cancel(_ notices: [SessionNotice]) {
         let ids = notices.map(\.rawValue)
         let center = UNUserNotificationCenter.current()

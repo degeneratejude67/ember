@@ -10,10 +10,13 @@ struct Prefs: Codable, Equatable {
     var soundsOn = true
     var noise: NoiseColor?
     var noiseVolume = 0.5
-    /// Minutes after midnight for the evening streak reminder.
+    var remindersOn = true
+    /// Minutes after midnight for the first streak reminder, until he has a usual start time.
     var reminderMinute = 20 * 60
     var presetID = Preset.pomodoro.id
     var subjectID: UUID?
+    /// Where he studies during blocks; nil means in Ember only (paper, past papers).
+    var studyAppID: String?
     var custom = Preset.customDefault
     var examMinutes = 180
     var onboarded = false
@@ -31,9 +34,11 @@ struct Prefs: Codable, Equatable {
         soundsOn = c.value(.soundsOn, d.soundsOn)
         noise = c.optional(.noise)
         noiseVolume = c.value(.noiseVolume, d.noiseVolume)
+        remindersOn = c.value(.remindersOn, d.remindersOn)
         reminderMinute = c.value(.reminderMinute, d.reminderMinute)
         presetID = c.value(.presetID, d.presetID)
         subjectID = c.optional(.subjectID)
+        studyAppID = c.optional(.studyAppID)
         custom = c.value(.custom, d.custom)
         examMinutes = c.value(.examMinutes, d.examMinutes)
         onboarded = c.value(.onboarded, d.onboarded)

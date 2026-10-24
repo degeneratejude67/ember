@@ -50,6 +50,13 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Toggle("Streak reminders", isOn: $store.data.prefs.remindersOn)
+                        .onChange(of: prefs.remindersOn) { _, _ in SessionController.shared.refreshReminders() }
+                } footer: {
+                    Text("Only on days without a block yet: one at the time you usually start, and a last call at 10 pm.")
+                }
+
+                Section {
                     Picker("Study day starts at", selection: $store.data.prefs.dayStartHour) {
                         ForEach(0...6, id: \.self) { hour in Text(hour == 0 ? "Midnight" : "\(hour) am").tag(hour) }
                     }

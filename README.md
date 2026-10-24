@@ -1,17 +1,37 @@
 # Ember
 
 A study-focus timer for iPad (iPadOS 17+): Pomodoro and other techniques, a lock-in mode
-that fails the block when you leave the app, and Duolingo-style streaks and celebrations.
+that ends the block when you leave the app, and Duolingo-style streaks and celebrations.
 Personal project; no Mac needed.
 
-Status: **M0, Lock Lab build.** It measures how iPadOS reports leaving the app versus
-locking the screen, before Deep Focus is built on top. The plan is in the session notes.
+## What it does
 
-## Lock Lab test (2 minutes)
+- **Techniques:** Pomodoro 25/5 (long break after 4), Deep 50/10, 52/17, Ultradian 90/20,
+  Flowtime (break = focus/5), Mock exam (one long block with time checks, then your score),
+  "Just 5 minutes" (turns into Flowtime), and Custom.
+- **Each block:** a goal line before you start, a Time Timer-style disc, a parking lot for
+  distracting thoughts, optional white/pink/brown noise, and a dim screen after 30 s.
+- **Lock:**
+  - Deep Focus: leaving Ember for longer than the grace time (10 s) ends the block.
+    Locking the screen and Split View are fine.
+  - Lock In: Guided Access pins the iPad to Ember.
+  - Study in another app: time in CollaNote, Slate, Edge or Files counts as focus.
+  - Focus Guard (a Shortcuts automation): YouTube, Instagram and games bounce you back.
+  - Relaxed: timer only.
+- **Rewards:**
+  - Streak: one block of 10+ minutes a day. Two freezes, and earn-back after a missed day.
+  - Daily goal, XP and ranks.
+  - Ember the flame, which changes colour with the streak.
+  - A celebration at the end of each block: block complete, streak, goal, rank-up.
+- **Also:** exams with countdowns and hours studied, a progress screen with a 7-day chart
+  and history, streak reminders on days you haven't studied, a re-sign reminder, and
+  JSON export.
 
-Open Ember > Lock Lab and follow the steps on screen: Home and back, a 15 s screen lock,
-Control Center, Notification Center, the app switcher, Split View, and a 20 s absence.
-Then `python tools\pull_lab.py` copies `locklab.json` to `out\device\` over USB.
+## Lock Lab
+
+Settings > Lock Lab shows how iPadOS reports leaving the app versus locking the screen, and
+judges each absence. `python tools\pull_lab.py` copies `locklab.json` (and the other data
+files) to `out\device\` over USB.
 
 ## Build
 
@@ -29,3 +49,8 @@ Sounds and the icon are generated: `python tools\make_sounds.py`, `python tools\
 
 A free Apple ID signature lasts 7 days. Re-sign Ember and Slate together; the
 "Slate re-sign reminder" task reminds you for both. Your data is kept when you re-sign.
+
+## Data
+
+Files > On My iPad > Ember: `ember.json` (everything), `active.json` (the running block),
+`Backups/` (one per day, kept 7 days), `locklab.json`.
