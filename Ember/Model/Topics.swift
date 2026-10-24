@@ -36,7 +36,13 @@ enum TopicStatus: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-/// One topic of a course (a lecture, a chapter, a kind of question).
+/// A heading inside a lecture and the slide it starts on.
+struct TopicSection: Codable, Equatable {
+    var title: String
+    var slide: Int
+}
+
+/// One lecture (slide deck) of a course, or a hand-added topic without slides.
 struct Topic: Codable, Identifiable, Equatable {
     var id = UUID()
     var subjectID: UUID
@@ -54,14 +60,33 @@ struct Topic: Codable, Identifiable, Equatable {
     /// Position on the spaced-review ladder (see `TopicProgress.intervals`).
     var reviewStep = 0
     var note = ""
+    /// Slides (or pages) in the lecture; nil for a topic without slides.
+    var slides: Int?
+    /// Slides he has gone through, 0...slides.
+    var slidesDone = 0
+    var sections: [TopicSection] = []
 
-    init(subjectID: UUID, title: String, group: String? = nil, order: Int, asked: Int? = nil, starred: Bool = false) {
+    init(subjectID: UUID, title: String, group: String? = nil, order: Int, asked: Int? = nil, starred: Bool = false,
+         slides: Int? = nil, sections: [TopicSection] = []) {
         self.subjectID = subjectID
         self.title = title
         self.group = group
         self.order = order
         self.asked = asked
         self.starred = starred
+        self.slides = slides
+        self.sections = sections
+    }
+
+    /// Share of the lecture's slides done, 0...1; nil without slides.
+    var coverage: Double? {
+        guard let slides, slides > 0 else { return nil }
+        return min(1, Double(slidesDone) / Double(slides))
+    }
+
+    /// The section he is in, by slides done.
+    var currentSection: TopicSection? {
+        sections.last { $0.slide <= max(1, slidesDone + 1) }
     }
 
     init(from decoder: Decoder) throws {
@@ -78,6 +103,9 @@ struct Topic: Codable, Identifiable, Equatable {
         reviewDue = c.optional(.reviewDue)
         reviewStep = c.value(.reviewStep, 0)
         note = c.value(.note, "")
+        slides = c.optional(.slides)
+        slidesDone = c.value(.slidesDone, 0)
+        sections = c.value(.sections, [])
     }
 }
 

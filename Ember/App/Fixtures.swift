@@ -49,21 +49,25 @@ enum Fixtures {
             }
         }
         data.sessions = sessions
-        // IC Engines has topics in two sections and past papers, some done.
+        // IC Engines has lectures with slides in two sections, and past papers, some done.
         let engines = subjects[2].id
-        let titles: [(String, String, Int, TopicStatus)] = [
-            ("Engine types and the two-stroke cycle", "Anup Sir", 18, .mastered),
-            ("Air-standard cycles", "Anup Sir", 27, .reviewed),
-            ("Fuel-air cycles and real losses", "Anup Sir", 12, .learning),
-            ("Carburettors and fuel metering", "Anup Sir", 35, .notStarted),
-            ("Combustion in SI engines and knock", "Monjur Sir", 31, .reviewed),
-            ("Combustion in CI engines", "Monjur Sir", 22, .learning),
-            ("Air capacity and supercharging", "Monjur Sir", 40, .notStarted),
-            ("Emissions and their control", "Monjur Sir", 41, .notStarted),
+        let lectures: [(String, String, Int, Int, Int, TopicStatus)] = [
+            ("Lec 1 · Engine basics and classification", "Anup Sir", 23, 23, 33, .mastered),
+            ("Lec 3 · Performance parameters", "Anup Sir", 14, 14, 27, .reviewed),
+            ("Lec 4-5 · Air-standard and fuel-air cycles", "Anup Sir", 33, 12, 19, .learning),
+            ("Lec 10-11 · Fuel metering", "Anup Sir", 19, 0, 35, .notStarted),
+            ("M3 · Combustion in SI engines", "Monjur Sir", 64, 64, 31, .reviewed),
+            ("M4 · Combustion in CI engines", "Monjur Sir", 40, 18, 22, .learning),
+            ("M10 · Air capacity of engines", "Monjur Sir", 27, 0, 40, .notStarted),
+            ("Lec 7-9 · Engine emissions", "Anup Sir", 50, 0, 41, .notStarted),
         ]
-        for (i, entry) in titles.enumerated() {
-            var topic = Topic(subjectID: engines, title: entry.0, group: entry.1, order: i, asked: entry.2, starred: entry.2 >= 35)
-            topic = entry.3 == .notStarted ? topic : TopicProgress.set(topic, status: entry.3, now: now.addingTimeInterval(-3 * 86_400))
+        for (i, entry) in lectures.enumerated() {
+            var topic = Topic(subjectID: engines, title: entry.0, group: entry.1, order: i, asked: entry.4,
+                              starred: entry.4 >= 35, slides: entry.2,
+                              sections: [TopicSection(title: "Introduction", slide: 1),
+                                         TopicSection(title: "Worked examples", slide: max(2, entry.2 / 2))])
+            topic.slidesDone = entry.3
+            topic = entry.5 == .notStarted ? topic : TopicProgress.set(topic, status: entry.5, now: now.addingTimeInterval(-3 * 86_400))
             data.topics.append(topic)
         }
         for (i, session) in ["2023-24", "2022-23", "2021-22", "2020-21", "2019-20"].enumerated() {

@@ -71,6 +71,7 @@ struct CompleteStep: View {
     @State private var scoreSaved = false
     @State private var paperID: UUID?
     @State private var rated: (before: Topic, after: Topic)?
+    @State private var reached: Int?
     @ObservedObject private var store = Store.shared
 
     private var record: SessionRecord { summary.record }
@@ -181,7 +182,29 @@ struct CompleteStep: View {
     private func topicCheck(_ topic: Topic) -> some View {
         Card {
             VStack(alignment: .leading, spacing: 12) {
-                Text("How well do you know \u{201C}\(topic.title)\u{201D} now?")
+                if let slides = topic.slides {
+                    let done = reached ?? topic.slidesDone
+                    Text("How far did you get in \u{201C}\(topic.title)\u{201D}?")
+                        .font(.rounded(16, .semibold))
+                        .foregroundStyle(Theme.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 12) {
+                        Slider(value: Binding(get: { Double(done) },
+                                              set: { reached = Int($0.rounded()) }),
+                               in: 0...Double(max(1, slides)), step: 1,
+                               onEditingChanged: { editing in
+                                   if !editing, let reached { controller.setSlides(topic.id, done: reached) }
+                               })
+                        .tint(Theme.ember)
+                        Text("\(done)/\(slides)")
+                            .font(.rounded(15, .heavy))
+                            .monospacedDigit()
+                            .foregroundStyle(Theme.text)
+                            .frame(minWidth: 70, alignment: .trailing)
+                            .accessibilityIdentifier("slides-reached")
+                    }
+                }
+                Text("How well do you know it now?")
                     .font(.rounded(16, .semibold))
                     .foregroundStyle(Theme.text)
                     .fixedSize(horizontal: false, vertical: true)

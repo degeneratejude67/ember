@@ -25,6 +25,8 @@ enum Importer {
         let title: String
         let group: String?
         let asked: Int?
+        let slides: Int?
+        let sections: [TopicSection]?
     }
 
     /// Share of a course's topics, by past-paper questions, marked high-yield.
@@ -60,7 +62,8 @@ enum Importer {
             let cutoff = counts.isEmpty ? Int.max : max(1, counts[min(cutoffIndex, counts.count - 1)])
             for line in course.topics ?? [] where !existing.contains(line.title.lowercased()) {
                 data.topics.append(Topic(subjectID: subjectID, title: line.title, group: line.group, order: order,
-                                         asked: line.asked, starred: (line.asked ?? 0) >= cutoff))
+                                         asked: line.asked, starred: (line.asked ?? 0) >= cutoff,
+                                         slides: line.slides, sections: line.sections ?? []))
                 order += 1
                 touched = true
             }

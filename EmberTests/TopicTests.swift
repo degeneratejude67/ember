@@ -70,12 +70,63 @@ final class TopicTests: XCTestCase {
 
     // MARK: - Course progress, suggestions, pace
 
-    func testProgressWeighsStatusAndHighYieldTwice() {
+    private func lecture(_ order: Int, slides: Int, done: Int) -> Topic {
+        var t = Topic(subjectID: course, title: "Lecture \(order)", order: order, slides: slides)
+        t.slidesDone = done
+        return t
+    }
+
+    func testProgressIsWeightedBySlides() {
         XCTAssertEqual(TopicProgress.progress([]), 0)
+        // a finished 60-slide lecture and an untouched 10-slide one: 60 of 70 slides
+        let course = [lecture(0, slides: 60, done: 60), lecture(1, slides: 10, done: 0)]
+        XCTAssertEqual(TopicProgress.progress(course), 60.0 / 70, accuracy: 0.001)
+        let swapped = [lecture(0, slides: 60, done: 0), lecture(1, slides: 10, done: 10)]
+        XCTAssertEqual(TopicProgress.progress(swapped), 10.0 / 70, accuracy: 0.001)
+        XCTAssertEqual(TopicProgress.slides(course).done, 60)
+        XCTAssertEqual(TopicProgress.slides(course).total, 70)
+    }
+
+    func testTopicsWithoutSlidesCountAsOneSlideByStatus() {
         XCTAssertEqual(TopicProgress.progress([topic(0, .mastered), topic(1, .notStarted)]), 0.5, accuracy: 0.001)
-        let weighted = TopicProgress.progress([topic(0, .mastered, starred: true), topic(1, .notStarted)])
-        XCTAssertEqual(weighted, 2.0 / 3, accuracy: 0.001)
         XCTAssertEqual(TopicProgress.progress([topic(0, .learning), topic(1, .reviewed)]), (0.35 + 0.7) / 2, accuracy: 0.001)
+        XCTAssertEqual(TopicProgress.progress([lecture(0, slides: 9, done: 9), topic(1, .mastered)]), 1, accuracy: 0.001)
+    }
+
+    func testSettingSlidesDone() {
+        var t = lecture(0, slides: 40, done: 0)
+        t = TopicProgress.setSlides(t, done: 25, now: day(3), calendar: calendar)
+        XCTAssertEqual(t.slidesDone, 25)
+        XCTAssertEqual(t.coverage ?? 0, 25.0 / 40, accuracy: 0.001)
+        XCTAssertEqual(t.status, .learning, "starting a lecture marks it as learning")
+        XCTAssertEqual(t.lastStudied, day(3))
+        XCTAssertEqual(TopicProgress.setSlides(t, done: 99, now: day(4), calendar: calendar).slidesDone, 40)
+        XCTAssertEqual(TopicProgress.setSlides(t, done: -3, now: day(4), calendar: calendar).slidesDone, 0)
+    }
+
+    func testTheCurrentSectionFollowsTheSlidesDone() {
+        var t = lecture(0, slides: 30, done: 0)
+        t.sections = [TopicSection(title: "Intro", slide: 1), TopicSection(title: "Cycles", slide: 12), TopicSection(title: "Problems", slide: 25)]
+        XCTAssertEqual(t.currentSection?.title, "Intro")
+        t.slidesDone = 11
+        XCTAssertEqual(t.currentSection?.title, "Cycles")
+        t.slidesDone = 26
+        XCTAssertEqual(t.currentSection?.title, "Problems")
+    }
+
+    func testLecturesWithSlidesLeftComeNext() {
+        let finished = lecture(0, slides: 20, done: 20)
+        let started = lecture(1, slides: 30, done: 10)
+        let next = TopicProgress.next([finished, started], now: day(3), limit: 3)
+        XCTAssertEqual(next.map(\.order), [1])
+    }
+
+    func testPaceInSlides() {
+        let course = [lecture(0, slides: 60, done: 20), lecture(1, slides: 40, done: 0)]
+        let pace = TopicProgress.pace(course, examAt: day(26, 9), now: day(24, 20), calendar: calendar)
+        XCTAssertEqual(pace.unit, "slides")
+        XCTAssertEqual(pace.left, 80)
+        XCTAssertEqual(pace.perDay, 40, accuracy: 0.001)
     }
 
     func testStudyNextPutsDueReviewsFirstThenHighYield() {
@@ -156,6 +207,19 @@ final class TopicTests: XCTestCase {
         XCTAssertEqual(Importer.run(into: &data, root: root), 0)
         XCTAssertEqual(data.topics.count, 1)
         XCTAssertTrue(FileManager.default.fileExists(atPath: folder.appendingPathComponent("Done/courses.json").path))
+    }
+
+    func testImportBringsSlidesAndSections() throws {
+        var data = AppData()
+        Importer.merge(try file(#"""
+        {"courses": [{"name": "ME 417 · IC Engines", "code": "ME 417",
+          "topics": [{"title": "Lec 1 · Engine basics", "group": "Anup Sir", "slides": 23,
+                      "sections": [{"title": "Outline", "slide": 1}, {"title": "Components", "slide": 22}]}]}]}
+        """#), into: &data)
+        let lecture = try XCTUnwrap(data.topics.first)
+        XCTAssertEqual(lecture.slides, 23)
+        XCTAssertEqual(lecture.slidesDone, 0)
+        XCTAssertEqual(lecture.sections.map(\.slide), [1, 22])
     }
 
     func testOldDataWithoutTopicsStillLoads() throws {

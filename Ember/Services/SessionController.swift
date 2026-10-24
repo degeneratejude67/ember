@@ -206,6 +206,12 @@ final class SessionController: ObservableObject {
         return (before, after)
     }
 
+    /// How far he got in a lecture, from the slider after a block.
+    func setSlides(_ id: UUID, done: Int) {
+        guard let i = store.data.topics.firstIndex(where: { $0.id == id }) else { return }
+        store.data.topics[i] = TopicProgress.setSlides(store.data.topics[i], done: done, now: Date())
+    }
+
     /// Saves a mock exam's score on the block and ticks off the past paper it was.
     func savePaper(_ paperID: UUID?, score: String, for recordID: UUID) {
         setExamScore(score, for: recordID)

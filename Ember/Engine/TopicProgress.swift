@@ -68,30 +68,66 @@ enum TopicProgress {
         return due <= now
     }
 
-    /// Share of a course done, 0...1: each topic counts by its status, high-yield topics twice.
+    /// Share of a course done, 0...1, weighted by slides: a 60-slide lecture counts six times
+    /// a 10-slide one. A topic without slides counts as one slide, done by its status.
     static func progress(_ topics: [Topic]) -> Double {
-        let total = topics.reduce(0.0) { $0 + ($1.starred ? 2 : 1) }
+        let total = topics.reduce(0.0) { $0 + Double(max(1, $1.slides ?? 1)) }
         guard total > 0 else { return 0 }
-        return topics.reduce(0.0) { $0 + $1.status.weight * ($1.starred ? 2 : 1) } / total
+        return topics.reduce(0.0) { sum, t in
+            if let slides = t.slides, slides > 0 { return sum + Double(min(t.slidesDone, slides)) }
+            return sum + t.status.weight
+        } / total
+    }
+
+    /// Slides done and in total across a course (lectures with slides only).
+    static func slides(_ topics: [Topic]) -> (done: Int, total: Int) {
+        topics.reduce((0, 0)) { acc, t in
+            guard let slides = t.slides, slides > 0 else { return acc }
+            return (acc.0 + min(t.slidesDone, slides), acc.1 + slides)
+        }
+    }
+
+    /// Records how far he got in a lecture; going backwards is allowed (to fix a mistake).
+    static func setSlides(_ topic: Topic, done: Int, now: Date, calendar: Calendar = .current) -> Topic {
+        var t = topic
+        guard let slides = t.slides else { return t }
+        t.slidesDone = min(max(0, done), slides)
+        t.lastStudied = now
+        if t.status == .notStarted && t.slidesDone > 0 { t = set(t, status: .learning, now: now, calendar: calendar) }
+        return t
     }
 
     /// What to study next in a course: reviews that are due (high-yield first, then the most
-    /// overdue), then topics not yet reviewed, high-yield first, in course order.
+    /// overdue), then lectures with slides left (or topics not yet reviewed), high-yield first,
+    /// in course order.
     static func next(_ topics: [Topic], now: Date, limit: Int = 3) -> [Topic] {
         let due = topics.filter { isDue($0, now: now) }
             .sorted { ($0.starred ? 0 : 1, $0.reviewDue ?? now) < ($1.starred ? 0 : 1, $1.reviewDue ?? now) }
-        let fresh = topics.filter { $0.status == .notStarted || $0.status == .learning }
+        let fresh = topics.filter { t in
+            if let coverage = t.coverage { return coverage < 1 }
+            return t.status == .notStarted || t.status == .learning
+        }
             .filter { t in !due.contains { $0.id == t.id } }
             .sorted { ($0.starred ? 0 : 1, $0.order) < ($1.starred ? 0 : 1, $1.order) }
         return Array((due + fresh).prefix(limit))
     }
 
-    /// Topics left to get to "reviewed" before an exam, and how many a day that needs.
-    static func pace(_ topics: [Topic], examAt: Date, now: Date, calendar: Calendar = .current) -> (left: Int, perDay: Double, days: Int) {
-        let left = topics.filter { $0.status == .notStarted || $0.status == .learning }.count
+    /// What is left before an exam, and how much a day that needs: slides when the course has
+    /// them, otherwise topics not yet reviewed.
+    static func pace(_ topics: [Topic], examAt: Date, now: Date, calendar: Calendar = .current) -> (left: Int, perDay: Double, days: Int, unit: String) {
+        let slides = slides(topics)
+        let left: Int
+        let unit: String
+        if slides.total > 0 {
+            left = slides.total - slides.done
+            unit = "slides"
+        } else {
+            left = topics.filter { $0.status == .notStarted || $0.status == .learning }.count
+            unit = "topics"
+        }
         let days = max(0, calendar.dateComponents([.day], from: calendar.startOfDay(for: now),
                                                   to: calendar.startOfDay(for: examAt)).day ?? 0)
-        return (left, days > 0 ? Double(left) / Double(days) : Double(left), days)
+        return (left, days > 0 ? Double(left) / Double(days) : Double(left), days, unit)
     }
 
     /// Focus minutes logged on each topic.

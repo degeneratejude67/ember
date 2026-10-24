@@ -76,7 +76,7 @@ struct ExamsView: View {
             let topics = store.data.topics(of: exam.subjectID)
             if !topics.isEmpty {
                 let pace = TopicProgress.pace(topics, examAt: exam.at, now: Date())
-                Text("\(Int((TopicProgress.progress(topics) * 100).rounded()))% ready · \(pace.left) topics still to learn")
+                Text("\(Int((TopicProgress.progress(topics) * 100).rounded()))% done · \(pace.left) \(pace.unit) to go")
                     .font(.rounded(13, .bold)).foregroundStyle(Theme.ember)
             }
         }

@@ -59,7 +59,7 @@ struct CourseCard: View {
     private var examUrgent: Bool { (examDays ?? 99) <= 3 }
 
     private var examLine: String {
-        guard let days = examDays else { return topics.isEmpty ? "Add topics" : "\(topics.count) topics" }
+        guard let days = examDays else { return topics.isEmpty ? "Add lectures" : "\(topics.count) lectures" }
         return days <= 0 ? "Exam today" : days == 1 ? "Exam tomorrow" : "Exam in \(days) days"
     }
 }
@@ -111,7 +111,7 @@ struct CourseDetailView: View {
                     }
                 }
                 ForEach(groupOrder, id: \.self) { group in
-                    Section(group.isEmpty ? "Topics" : group) {
+                    Section(group.isEmpty ? "Lectures" : group) {
                         ForEach(groups[group] ?? []) { topic in row(topic, minutes: minutes) }
                             .onDelete { offsets in
                                 let ids = offsets.map { (groups[group] ?? [])[$0].id }
@@ -121,10 +121,10 @@ struct CourseDetailView: View {
                 }
                 if topics.isEmpty {
                     Section {
-                        Text("Add the course's topics (lectures, chapters or kinds of question) to track how well you know each one.")
+                        Text("Add the course's lectures with their slide counts to track how far you've got; the percentage is weighted by slides.")
                             .font(.rounded(15, .medium))
                             .foregroundStyle(Theme.dim)
-                        Button("Add topics") { adding = true }
+                        Button("Add lectures") { adding = true }
                     }
                 }
                 papersSection(data.papers(of: subjectID))
@@ -163,10 +163,19 @@ struct CourseDetailView: View {
                 .frame(width: 90, height: 90)
                 .accessibilityIdentifier("course-progress")
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("\(counts[.mastered] ?? 0) mastered · \(counts[.reviewed] ?? 0) reviewed")
-                        .font(.rounded(16, .bold)).foregroundStyle(Theme.text)
-                    Text("\(counts[.learning] ?? 0) learning · \(counts[.notStarted] ?? 0) not started")
-                        .font(.rounded(14, .semibold)).foregroundStyle(Theme.dim)
+                    let slides = TopicProgress.slides(topics)
+                    if slides.total > 0 {
+                        Text("\(slides.done) of \(slides.total) slides done")
+                            .font(.rounded(16, .bold)).foregroundStyle(Theme.text)
+                            .accessibilityIdentifier("course-slides")
+                        Text("\(topics.filter { ($0.coverage ?? 0) >= 1 }.count) of \(topics.count) lectures finished · \((counts[.reviewed] ?? 0) + (counts[.mastered] ?? 0)) reviewed")
+                            .font(.rounded(14, .semibold)).foregroundStyle(Theme.dim)
+                    } else {
+                        Text("\(counts[.mastered] ?? 0) mastered · \(counts[.reviewed] ?? 0) reviewed")
+                            .font(.rounded(16, .bold)).foregroundStyle(Theme.text)
+                        Text("\(counts[.learning] ?? 0) learning · \(counts[.notStarted] ?? 0) not started")
+                            .font(.rounded(14, .semibold)).foregroundStyle(Theme.dim)
+                    }
                     Text(String(format: "%.1f hours studied", hours))
                         .font(.rounded(14, .semibold)).foregroundStyle(Theme.dim)
                 }
@@ -178,18 +187,18 @@ struct CourseDetailView: View {
                     .foregroundStyle(pace.days <= 3 ? Theme.danger : Theme.gold)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text("High-yield topics (\u{2605}) are the ones asked most in past papers; they count twice in the percentage.")
+            Text("The percentage counts slides, so a 60-slide lecture weighs six times a 10-slide one. \u{2605} marks the lectures asked most in past papers.")
                 .font(.rounded(12, .medium))
                 .foregroundStyle(Theme.dim)
         }
         .padding(.vertical, 6)
     }
 
-    private func paceLine(exam: Exam, pace: (left: Int, perDay: Double, days: Int)) -> String {
+    private func paceLine(exam: Exam, pace: (left: Int, perDay: Double, days: Int, unit: String)) -> String {
         let when = pace.days <= 0 ? "today" : pace.days == 1 ? "tomorrow" : "in \(pace.days) days"
-        guard pace.left > 0 else { return "Exam \(when). Every topic is at least reviewed: keep reviewing." }
+        guard pace.left > 0 else { return "Exam \(when). Everything is covered: keep reviewing." }
         let rate = pace.perDay < 1 ? "1 every \(Int((1 / max(pace.perDay, 0.01)).rounded())) days" : String(format: "%.0f a day", pace.perDay.rounded(.up))
-        return "Exam \(when): \(pace.left) topics still to learn, about \(rate)."
+        return "Exam \(when): \(pace.left) \(pace.unit) to go, about \(rate)."
     }
 
     private func row(_ topic: Topic, minutes: [UUID: Double]) -> some View {
@@ -268,6 +277,17 @@ struct TopicRow: View {
                         .foregroundStyle(Theme.text)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if let coverage = topic.coverage {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Theme.cardHigh)
+                            Capsule().fill(coverage >= 1 ? Theme.gold : Theme.ember)
+                                .frame(width: max(4, geo.size.width * coverage))
+                        }
+                    }
+                    .frame(height: 5)
+                    .padding(.vertical, 2)
+                }
                 Text(detail)
                     .font(.rounded(12, .medium))
                     .foregroundStyle(TopicProgress.isDue(topic, now: now) ? Theme.ember : Theme.dim)
@@ -287,7 +307,12 @@ struct TopicRow: View {
     }
 
     private var detail: String {
-        var parts = [topic.status.label]
+        var parts: [String] = []
+        if let slides = topic.slides {
+            parts.append("\(topic.slidesDone)/\(slides) slides")
+            if let section = topic.currentSection, topic.slidesDone < slides { parts.append(section.title) }
+        }
+        parts.append(topic.status.label)
         if minutes >= 1 { parts.append(TimeText.minutes(Int(minutes))) }
         if let asked = topic.asked, asked > 0 { parts.append("asked \(asked)×") }
         if let due = topic.reviewDue, topic.status != .notStarted {
@@ -311,11 +336,40 @@ struct TopicEditor: View {
     @State private var status: TopicStatus = .notStarted
     @State private var starred = false
     @State private var note = ""
+    @State private var slides = 0
+    @State private var slidesDone = 0
 
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Topic", text: $title)
+                TextField("Lecture", text: $title)
+                if topic.slides != nil {
+                    Section {
+                        Stepper("Done up to slide \(slidesDone) of \(slides)", value: $slidesDone, in: 0...max(1, slides))
+                            .accessibilityIdentifier("slides-done")
+                        Slider(value: Binding(get: { Double(slidesDone) }, set: { slidesDone = Int($0.rounded()) }),
+                               in: 0...Double(max(1, slides)), step: 1)
+                            .tint(Theme.ember)
+                        Stepper("Slides in this lecture: \(slides)", value: $slides, in: 1...999)
+                    } header: {
+                        Text("Slides")
+                    }
+                    if !topic.sections.isEmpty {
+                        Section("In this lecture") {
+                            ForEach(Array(topic.sections.enumerated()), id: \.offset) { _, section in
+                                HStack {
+                                    Image(systemName: slidesDone >= section.slide ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(slidesDone >= section.slide ? Theme.teal : Theme.dim)
+                                    Text(section.title)
+                                    Spacer()
+                                    Text("slide \(section.slide)").foregroundStyle(Theme.dim)
+                                }
+                                .contentShape(Rectangle())
+                                .onTapGesture { slidesDone = max(0, section.slide - 1) }
+                            }
+                        }
+                    }
+                }
                 Picker("How well you know it", selection: $status) {
                     ForEach(TopicStatus.allCases) { Label($0.label, systemImage: $0.icon).tag($0) }
                 }
@@ -334,7 +388,7 @@ struct TopicEditor: View {
                     .accessibilityIdentifier("study-topic")
                 }
             }
-            .navigationTitle("Topic")
+            .navigationTitle("Lecture")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -350,6 +404,8 @@ struct TopicEditor: View {
                 status = topic.status
                 starred = topic.starred
                 note = topic.note
+                slides = topic.slides ?? 0
+                slidesDone = topic.slidesDone
             }
         }
         .preferredColorScheme(.dark)
@@ -363,6 +419,10 @@ struct TopicEditor: View {
         if !trimmed.isEmpty { updated.title = trimmed }
         updated.starred = starred
         updated.note = note
+        if updated.slides != nil {
+            updated.slides = max(1, slides)
+            updated = TopicProgress.setSlides(updated, done: slidesDone, now: Date())
+        }
         store.data.topics[i] = updated
     }
 }
@@ -378,14 +438,14 @@ struct AddTopicsSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("One topic per line", text: $text, axis: .vertical)
+                    TextField("One lecture per line", text: $text, axis: .vertical)
                         .lineLimit(8...20)
                         .accessibilityIdentifier("topics-text")
                 } footer: {
-                    Text("Paste a syllabus or the slide titles. A line ending in a colon (\u{201C}Anup Sir:\u{201D}) starts a section for the lines under it.")
+                    Text("Add the slide count after a bar: \u{201C}Lec 3 Engine cycles | 40\u{201D}. A line ending in a colon (\u{201C}Anup Sir:\u{201D}) starts a section for the lines under it.")
                 }
             }
-            .navigationTitle("Add topics")
+            .navigationTitle("Add lectures")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -413,7 +473,13 @@ struct AddTopicsSheet: View {
                 group = String(line.dropLast()).trimmingCharacters(in: .whitespaces)
                 continue
             }
-            store.data.topics.append(Topic(subjectID: subjectID, title: line, group: group, order: order))
+            var title = line
+            var slides: Int?
+            if let bar = line.lastIndex(of: "|"), let count = Int(line[line.index(after: bar)...].trimmingCharacters(in: .whitespaces)) {
+                title = String(line[..<bar]).trimmingCharacters(in: .whitespaces)
+                slides = max(1, count)
+            }
+            store.data.topics.append(Topic(subjectID: subjectID, title: title, group: group, order: order, slides: slides))
             order += 1
         }
     }
@@ -434,18 +500,18 @@ struct TopicPickerSheet: View {
         NavigationStack {
             List {
                 Section {
-                    choice(nil, title: "Any topic", detail: "Just the course")
+                    choice(nil, title: "Any lecture", detail: "Just the course")
                 }
                 if !next.isEmpty {
                     Section("Suggested") {
                         ForEach(next) { topic in pick(topic, minutes: minutes, now: now) }
                     }
                 }
-                Section("All topics") {
+                Section("All lectures") {
                     ForEach(topics) { topic in pick(topic, minutes: minutes, now: now) }
                 }
             }
-            .navigationTitle("Topic")
+            .navigationTitle("Lecture")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }

@@ -76,7 +76,7 @@ struct HomeView: View {
                         sheet = .studyApp
                     }
                     if !courseTopics.isEmpty {
-                        ChoiceChip(caption: "Topic", title: topic?.title ?? "Any topic",
+                        ChoiceChip(caption: "Lecture", title: topic?.title ?? "Any lecture",
                                    dot: topic.map { _ in Theme.gold }, identifier: "topic-chip") {
                             sheet = .topic
                         }
