@@ -34,6 +34,7 @@ final class SessionController: ObservableObject {
                   let saved = try? JSONDecoder.ember.decode(ActiveSession.self, from: raw) {
             session = saved
             send(.relaunch)
+            if session?.config.studiesElsewhere == true && session?.isFocusing == true { startFloatingTimer() }
         }
         LockDetector.shared.onEvent = { [weak self] event in self?.detector(event) }
         refreshReminders()
@@ -67,8 +68,23 @@ final class SessionController: ObservableObject {
         if !AppEnv.isUITest { Notifier.requestAuthorizationIfNeeded() }
         syncNoise()
         if studyApp != nil {
+            startFloatingTimer()
             // let the start chime play before switching apps
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.openStudyApp() }
+        }
+    }
+
+    /// Feeds the floating mini timer while a block runs in another app.
+    func startFloatingTimer() {
+        FloatingTimer.shared.run { [weak self] in
+            guard let self, let s = self.session, s.isFocusing, let app = StudyApp.find(s.config.studyAppID) else { return nil }
+            let now = Instant.now()
+            let shown = s.plannedSeconds == nil ? SessionEngine.focusElapsed(s, at: now) : (SessionEngine.remaining(s, at: now) ?? 0)
+            let subject = self.store.data.subject(s.config.subjectID)?.name
+            return .init(time: TimeText.clock(shown * 60 / s.config.secondsPerMinute),
+                         caption: [subject, app.name].compactMap { $0 }.joined(separator: " · "),
+                         tier: Today(self.store.data).tier == .ash ? .glow : Today(self.store.data).tier,
+                         paused: s.phase == .paused)
         }
     }
 

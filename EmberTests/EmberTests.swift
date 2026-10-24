@@ -50,4 +50,12 @@ final class EmberTests: XCTestCase {
             XCTAssertEqual(FlameTier.forStreak(tier.startsAt, lit: true), tier)
         }
     }
+
+    func testTheFloatingTimerDrawsAFrame() throws {
+        let frame = FloatingTimer.Frame(time: "18:42", caption: "IC Engines · CollaNote", tier: .glow, paused: false)
+        let buffer = try XCTUnwrap(FloatingTimer.render(frame))
+        XCTAssertEqual(CVPixelBufferGetWidth(buffer), 480)
+        XCTAssertEqual(CVPixelBufferGetHeight(buffer), 270)
+        XCTAssertNotNil(FloatingTimer.sample(buffer))
+    }
 }

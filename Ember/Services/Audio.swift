@@ -84,7 +84,8 @@ final class Audio: ObservableObject {
 
     private func configureSession() {
         let session = AVAudioSession.sharedInstance()
-        if noise != nil {
+        // noise and the floating timer both need a playback session
+        if noise != nil || FloatingTimer.shared.isRunning {
             try? session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
         } else {
             try? session.setCategory(.ambient, mode: .default, options: [])

@@ -207,6 +207,16 @@ struct FocusView: View {
                     .font(.rounded(14, .regular))
                     .foregroundStyle(Theme.dim)
                     .fixedSize(horizontal: false, vertical: true)
+                if FloatingTimer.isSupported {
+                    HStack(spacing: 12) {
+                        FloatingTimerPreview()
+                            .frame(width: 160, height: 90)
+                        Text("This mini timer floats over \(app.name) when you switch. Drag it anywhere, or tuck it into the side of the screen.")
+                            .font(.rounded(13, .medium))
+                            .foregroundStyle(Theme.dim)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
                 if app.url != nil {
                     Button("Back to \(app.name)") { controller.openStudyApp() }
                         .buttonStyle(ChunkyButtonStyle(color: Theme.teal, lip: Theme.tealDeep, height: 46))
