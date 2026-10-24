@@ -1,0 +1,101 @@
+name: Ember
+options:
+  bundleIdPrefix: app.ember
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # iPad is the target; iPhone is only there for compact-width screenshots in CI.
+    TARGETED_DEVICE_FAMILY: "1,2"
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+targets:
+  Ember:
+    type: application
+    platform: iOS
+    sources:
+      - path: Ember
+    info:
+      path: Ember/Info.plist
+      properties:
+        CFBundleDisplayName: Ember
+        CFBundleName: Ember
+        CFBundleIdentifier: "$(PRODUCT_BUNDLE_IDENTIFIER)"
+        CFBundleExecutable: "$(EXECUTABLE_NAME)"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        CFBundlePackageType: APPL
+        CFBundleDevelopmentRegion: en
+        CFBundleInfoDictionaryVersion: "6.0"
+        LSRequiresIPhoneOS: true
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UIUserInterfaceStyle: Dark
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        # Split View stays allowed, so notes can sit beside the timer.
+        UIRequiresFullScreen: false
+        # Focus noise keeps playing on the lock screen.
+        UIBackgroundModes:
+          - audio
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        CFBundleURLTypes:
+          - CFBundleURLName: app.ember.focus
+            CFBundleURLSchemes:
+              - ember
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.ember.focus
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+  EmberTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: EmberTests
+    dependencies:
+      - target: Ember
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: app.ember.focus.tests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Ember.app/Ember"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+  EmberUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: EmberUITests
+    dependencies:
+      - target: Ember
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: app.ember.focus.uitests
+        TEST_TARGET_NAME: Ember
+schemes:
+  Ember:
+    build:
+      targets:
+        Ember: all
+        EmberTests: [test]
+        EmberUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - EmberTests
+        - EmberUITests

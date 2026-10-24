@@ -1,0 +1,101 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tools
+        run: |
+          brew install xcodegen
+          xcodebuild -version
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Build unsigned IPA
+        run: |
+          xcodebuild -project Ember.xcodeproj -scheme Ember -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build > build.log 2>&1 || { grep -E "error:|fatal" build.log | sort -u | head -80; tail -30 build.log; exit 1; }
+          grep -E "warning:.*/Ember/" build.log | sort -u | head -40 || true
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/Ember.app Payload/
+          zip -qry Ember.ipa Payload
+          ls -l Ember.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ember-ipa
+          path: Ember.ipa
+
+      - name: Pick simulators
+        id: sim
+        run: |
+          xcrun simctl list devices available -j > sims.json
+          IPAD=$(python3 .github/pick_sim.py iPad < sims.json)
+          IPHONE=$(python3 .github/pick_sim.py iPhone < sims.json)
+          echo "ipad=$IPAD" >> "$GITHUB_OUTPUT"
+          echo "iphone=$IPHONE" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$IPAD" || true
+
+      - name: Build for testing
+        run: |
+          xcodebuild build-for-testing -project Ember.xcodeproj -scheme Ember \
+            -destination "id=${{ steps.sim.outputs.ipad }}" -derivedDataPath build-test > build-test.log 2>&1 \
+            || { grep -E "error:|fatal" build-test.log | sort -u | head -80; tail -30 build-test.log; exit 1; }
+
+      - name: Test on iPad simulator
+        run: |
+          mkdir -p shots
+          STATUS=0
+          TEST_RUNNER_SCREENSHOT_DIR="$PWD/shots" xcodebuild test-without-building -project Ember.xcodeproj -scheme Ember \
+            -destination "id=${{ steps.sim.outputs.ipad }}" -derivedDataPath build-test \
+            -resultBundlePath TestResults.xcresult > test.log 2>&1 || STATUS=$?
+          grep -E "error:|Test Case .*(passed|failed)|Executed|XCTAssert" test.log | head -150 || true
+          if [ "$STATUS" -ne 0 ]; then tail -40 test.log; fi
+          exit $STATUS
+
+      - name: Compact screenshots on iPhone simulator
+        if: ${{ !cancelled() }}
+        run: |
+          xcrun simctl boot "${{ steps.sim.outputs.iphone }}" || true
+          mkdir -p shots/iphone
+          STATUS=0
+          TEST_RUNNER_SCREENSHOT_DIR="$PWD/shots/iphone" xcodebuild test-without-building -project Ember.xcodeproj -scheme Ember \
+            -destination "id=${{ steps.sim.outputs.iphone }}" -derivedDataPath build-test \
+            -only-testing:EmberUITests/EmberUITests/testCompactTour > test-iphone.log 2>&1 || STATUS=$?
+          grep -E "error:|Test Case .*(passed|failed)|Executed" test-iphone.log | head -40 || true
+          if [ "$STATUS" -ne 0 ]; then tail -40 test-iphone.log; fi
+          exit $STATUS
+
+      - name: Export test attachments
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p attachments
+          xcrun xcresulttool export attachments --path TestResults.xcresult --output-path attachments > /dev/null 2>&1 || true
+          ls shots attachments || true
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: test-output
+          path: |
+            shots
+            attachments
+            build.log
+            build-test.log
+            test.log
+            test-iphone.log

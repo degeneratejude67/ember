@@ -1,0 +1,11 @@
+*.xcodeproj/
+build/
+build-test/
+DerivedData/
+Payload/
+*.ipa
+*.xcresult
+out/
+shots/
+.DS_Store
+__pycache__/
