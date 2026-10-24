@@ -8,7 +8,7 @@ final class SessionController: ObservableObject {
 
     @Published private(set) var session: ActiveSession?
     /// The block that just completed; the celebration shows while this is set.
-    @Published var celebration: SessionRecord?
+    @Published var celebration: CompletionSummary?
     /// The block that just ended early; the unfinished screen shows while this is set.
     @Published var unfinished: Unfinished?
 
@@ -59,6 +59,13 @@ final class SessionController: ObservableObject {
         run(effects)
         if UIAccessibility.isGuidedAccessEnabled { send(.guidedAccess(true)) }
         if !AppEnv.isUITest { Notifier.requestAuthorizationIfNeeded() }
+        syncNoise()
+    }
+
+    /// Plays the chosen focus noise while a block runs, and silence otherwise.
+    func syncNoise() {
+        let wanted: NoiseColor? = session?.isFocusing == true ? prefs.noise : nil
+        if Audio.shared.noise != wanted { Audio.shared.setNoise(wanted) }
     }
 
     /// Puts a prepared session in place without side effects (UI-test fixtures).
@@ -71,6 +78,7 @@ final class SessionController: ObservableObject {
         let effects = SessionEngine.reduce(&state, event, now: .now())
         if state != session { session = state }
         run(effects)
+        syncNoise()
     }
 
     /// Sets the distraction tag on a block that ended early, then closes the screen.
@@ -85,6 +93,13 @@ final class SessionController: ObservableObject {
     func setIntentResult(_ result: String, for id: UUID) {
         if let i = store.data.sessions.firstIndex(where: { $0.id == id }) {
             store.data.sessions[i].intentResult = result
+        }
+    }
+
+    func setExamScore(_ score: String, for id: UUID) {
+        let trimmed = score.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let i = store.data.sessions.firstIndex(where: { $0.id == id }) {
+            store.data.sessions[i].examScore = trimmed.isEmpty ? nil : trimmed
         }
     }
 
@@ -140,7 +155,7 @@ final class SessionController: ObservableObject {
                     store.data.sessions[i].cleanBreak = clean
                 }
             case let .celebrate(record):
-                celebration = record
+                celebration = CompletionSummary.make(record: record, data: store.data)
             case let .unfinished(record, away):
                 celebration = nil
                 unfinished = Unfinished(record: record, awaySeconds: away)

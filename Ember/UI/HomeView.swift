@@ -4,12 +4,15 @@ import SwiftUI
 struct HomeView: View {
     @ObservedObject private var store = Store.shared
     @ObservedObject private var controller = SessionController.shared
+    @ObservedObject private var detector = LockDetector.shared
     @State private var intent = ""
+    /// Lock In is waiting for Guided Access before starting this preset.
+    @State private var armed: Preset?
     @State private var sheet: HomeSheet?
     @FocusState private var intentFocused: Bool
 
     enum HomeSheet: String, Identifiable {
-        case technique, subject, mode, settings
+        case technique, subject, mode, settings, streak
         var id: String { rawValue }
     }
 
@@ -33,6 +36,10 @@ struct HomeView: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("greeting")
+                WeekStrip(week: today.week, days: today.days)
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 16)
+                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 if let exam = today.nextExam {
                     examChip(exam, subject: data.subject(exam.subjectID))
                 }
@@ -78,19 +85,35 @@ struct HomeView: View {
             .frame(maxWidth: .infinity)
         }
         .scrollDismissesKeyboard(.interactively)
+        .overlay {
+            if let preset = armed {
+                ArmingView(onStartWithout: { begin(preset, strictness: .deep) }, onCancel: { armed = nil })
+                    .transition(.opacity)
+            }
+        }
+        .onChange(of: detector.guidedAccess) { _, on in
+            if on, let preset = armed { begin(preset, strictness: .lockIn) }
+        }
         .sheet(item: $sheet) { which in
             switch which {
             case .technique: TechniqueSheet()
             case .subject: SubjectSheet()
             case .mode: ModeSheet()
             case .settings: SettingsView()
+            case .streak: StreakSheet()
             }
         }
     }
 
     private func topBar(_ today: Today) -> some View {
         HStack(spacing: 14) {
-            StreakPill(days: today.streak.current, tier: today.tier)
+            Button {
+                sheet = .streak
+            } label: {
+                StreakPill(days: today.streak.current, tier: today.tier)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("streak-button")
             Spacer(minLength: 0)
             GoalRing(minutes: today.minutes, goal: today.goal)
             Button {
@@ -109,6 +132,10 @@ struct HomeView: View {
     @ViewBuilder private var banners: some View {
         if let notice = store.notice {
             Banner(text: notice, color: Theme.danger) { store.notice = nil }
+        }
+        if detector.guidedAccess && armed == nil {
+            Banner(text: "Guided Access is still on. Triple-click Home and enter the passcode to leave Ember.",
+                   color: Theme.gold, onClose: nil)
         }
         if let days = Provisioning.daysLeft, days <= 2 {
             Banner(text: days <= 0
@@ -139,8 +166,18 @@ struct HomeView: View {
 
     private func start(_ preset: Preset) {
         intentFocused = false
-        let prefs = store.data.prefs
-        controller.start(preset: preset, strictness: prefs.strictness, subjectID: prefs.subjectID, intent: intent)
+        let strictness = store.data.prefs.strictness
+        if strictness == .lockIn && !UIAccessibility.isGuidedAccessEnabled
+            && (!AppEnv.isUITest || AppEnv.arguments.contains("-uitest-arming")) {
+            armed = preset
+        } else {
+            begin(preset, strictness: strictness)
+        }
+    }
+
+    private func begin(_ preset: Preset, strictness: Strictness) {
+        armed = nil
+        controller.start(preset: preset, strictness: strictness, subjectID: store.data.prefs.subjectID, intent: intent)
         intent = ""
     }
 }

@@ -143,37 +143,30 @@ struct SubjectSheet: View {
     }
 }
 
-/// Relaxed or Deep Focus (Lock In arrives with Guided Access support).
+/// Relaxed, Deep Focus or Lock In, with the two setup guides.
 struct ModeSheet: View {
     @ObservedObject private var store = Store.shared
     @Environment(\.dismiss) private var dismiss
+    @State private var guide: Guide?
+
+    enum Guide: String, Identifiable {
+        case lockIn, focusGuard
+        var id: String { rawValue }
+    }
 
     var body: some View {
         NavigationStack {
             List {
-                ForEach([Strictness.deep, .relaxed]) { mode in
-                    Button {
-                        store.data.prefs.strictness = mode
-                        dismiss()
-                    } label: {
-                        HStack(alignment: .firstTextBaseline, spacing: 12) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(mode.label).font(.rounded(17, .bold)).foregroundStyle(Theme.text)
-                                Text(mode.summary)
-                                    .font(.rounded(14, .regular))
-                                    .foregroundStyle(Theme.dim)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            Spacer(minLength: 0)
-                            if store.data.prefs.strictness == mode {
-                                Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.ember).font(.system(size: 20))
-                            }
-                        }
-                        .padding(.vertical, 4)
-                        .contentShape(Rectangle())
+                Section {
+                    modes
+                }
+                Section("Make it stricter") {
+                    Button { guide = .lockIn } label: {
+                        Label("Set up Lock In (Guided Access)", systemImage: "lock.fill")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("mode-\(mode.rawValue)")
+                    Button { guide = .focusGuard } label: {
+                        Label("Set up Focus Guard (Shortcuts)", systemImage: "shield.lefthalf.filled")
+                    }
                 }
             }
             .navigationTitle("Mode")
@@ -181,7 +174,40 @@ struct ModeSheet: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
+            .sheet(item: $guide) { which in
+                switch which {
+                case .lockIn: LockInGuide()
+                case .focusGuard: FocusGuardGuide()
+                }
+            }
         }
         .preferredColorScheme(.dark)
+    }
+
+    private var modes: some View {
+        ForEach([Strictness.deep, .lockIn, .relaxed]) { mode in
+            Button {
+                store.data.prefs.strictness = mode
+                dismiss()
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(mode.label).font(.rounded(17, .bold)).foregroundStyle(Theme.text)
+                        Text(mode.summary)
+                            .font(.rounded(14, .regular))
+                            .foregroundStyle(Theme.dim)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    if store.data.prefs.strictness == mode {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.ember).font(.system(size: 20))
+                    }
+                }
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("mode-\(mode.rawValue)")
+        }
     }
 }

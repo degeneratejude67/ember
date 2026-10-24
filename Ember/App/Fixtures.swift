@@ -68,7 +68,7 @@ enum Fixtures {
                                    secondsPerMinute: 60, dayStartHour: prefs.dayStartHour)
         let now = Instant.now()
         switch screen {
-        case "focus", "focus-ring", "focus-digits":
+        case "focus", "focus-ring", "focus-digits", "dimmed":
             var (session, _) = SessionEngine.start(config, now: now.adding(-12 * 60 - 25))
             session.round = 2
             controller.restore(session)
@@ -90,9 +90,26 @@ enum Fixtures {
             session.parking = ["Email Dr Rahman about the lab report", "Look up the Dittus–Boelter range"]
             controller.restore(session)
         case "complete":
+            // A summary that earns every screen: streak 13 to 14 (a milestone), the daily
+            // goal, and a rank-up. -uitest-step picks the screen.
             let record = demoRecord(config, now: now)
             Store.shared.data.sessions.append(record)
-            controller.celebration = record
+            let real = CompletionSummary.make(record: record, data: Store.shared.data)
+            controller.celebration = CompletionSummary(
+                record: record, xp: 35, streakBefore: 13, streakAfter: 14, extendedStreak: true, milestone: 14,
+                tierBefore: .blaze, tierAfter: .hot, freezeEarned: true, earnedBack: false,
+                minutesBefore: 100, minutesAfter: 125, goal: 120,
+                rankBefore: Rewards.ranks[2], rankAfter: Rewards.ranks[3], hoursAfter: 40.4,
+                week: real.week, firstEver: false)
+        case "exam-complete":
+            var record = demoRecord(config, now: now)
+            record.presetID = Preset.exam.id
+            record.presetName = Preset.exam.name
+            record.minutes = 180
+            record.plannedMinutes = 180
+            record.intent = ""
+            Store.shared.data.sessions.append(record)
+            controller.celebration = CompletionSummary.make(record: record, data: Store.shared.data)
         case "unfinished":
             var record = demoRecord(config, now: now)
             record.outcome = .unfinished

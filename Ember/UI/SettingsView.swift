@@ -4,6 +4,7 @@ struct SettingsView: View {
     @ObservedObject private var store = Store.shared
     @Environment(\.dismiss) private var dismiss
     @State private var exportURL: URL?
+    @State private var guide: ModeSheet.Guide?
 
     var body: some View {
         let prefs = store.data.prefs
@@ -23,9 +24,10 @@ struct SettingsView: View {
                         ForEach([5, 10, 20, 30], id: \.self) { Text("\($0) seconds").tag($0) }
                     }
                     Picker("Mode for new blocks", selection: $store.data.prefs.strictness) {
-                        Text(Strictness.deep.label).tag(Strictness.deep)
-                        Text(Strictness.relaxed.label).tag(Strictness.relaxed)
+                        ForEach(Strictness.allCases) { Text($0.label).tag($0) }
                     }
+                    Button("Set up Lock In (Guided Access)") { guide = .lockIn }
+                    Button("Set up Focus Guard (Shortcuts)") { guide = .focusGuard }
                 } header: {
                     Text("Deep Focus")
                 } footer: {
@@ -38,6 +40,13 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.segmented)
                     Toggle("Sounds", isOn: $store.data.prefs.soundsOn)
+                    Picker("Focus noise", selection: $store.data.prefs.noise) {
+                        Text("Off").tag(NoiseColor?.none)
+                        ForEach(NoiseColor.allCases) { Text($0.label).tag(NoiseColor?.some($0)) }
+                    }
+                    if prefs.noise != nil {
+                        Slider(value: $store.data.prefs.noiseVolume, in: 0...1) { Text("Noise volume") }
+                    }
                 }
 
                 Section {
@@ -71,6 +80,13 @@ struct SettingsView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .onAppear { exportURL = store.exportFile() }
+            .onChange(of: prefs.noiseVolume) { _, volume in Audio.shared.noiseVolume = Float(volume) }
+            .sheet(item: $guide) { which in
+                switch which {
+                case .lockIn: LockInGuide()
+                case .focusGuard: FocusGuardGuide()
+                }
+            }
         }
         .preferredColorScheme(.dark)
     }

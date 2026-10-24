@@ -65,8 +65,18 @@ final class EmberUITests: XCTestCase {
         shot("03-focus")
 
         wait(app.buttons["continue"], 45, "the 25-second block never finished")
+        sleep(1)
         shot("04-celebration")
         app.buttons["continue"].tap()
+        // The first block of the day extends the seeded 12-day streak.
+        wait(element(app, "streak-number"), 5, "no streak screen after the first block of the day")
+        let continueButton = app.buttons["continue"]
+        let lit = NSPredicate(format: "isEnabled == true")
+        expectation(for: lit, evaluatedWith: continueButton)
+        waitForExpectations(timeout: 10)
+        XCTAssertEqual(element(app, "streak-number").label, "13")
+        shot("04b-streak")
+        continueButton.tap()
 
         wait(element(app, "next-round"), 20, "the break never ended")
         shot("05-ready")
@@ -125,11 +135,45 @@ final class EmberUITests: XCTestCase {
         wait(app.buttons["finish"], 5)
     }
 
+    /// The parking lot keeps a thought for the break; the noise button cycles colours.
+    func testParkingLotAndNoise() {
+        let app = launch(["-uitest-reset", "-uitest-seed"])
+        wait(app.buttons["start"], 15)
+        app.buttons["start"].tap()
+        wait(app.buttons["park"], 5).tap()
+        let field = app.alerts.textFields.firstMatch
+        wait(field, 5).tap()
+        field.typeText("Reply to Nabil about the lab group")
+        app.alerts.buttons["Park it"].tap()
+        XCTAssertTrue(app.buttons["park"].label.contains("1"), app.buttons["park"].label)
+        app.buttons["noise"].tap()
+        XCTAssertTrue(app.buttons["noise"].label.contains("Brown"), app.buttons["noise"].label)
+        shot("13-focus-parked-and-noise")
+        app.buttons["noise"].tap()
+        app.buttons["noise"].tap()
+        app.buttons["noise"].tap()
+        XCTAssertTrue(app.buttons["noise"].label.contains("off"), app.buttons["noise"].label)
+    }
+
+    /// Lock In waits for Guided Access (which the simulator can't start), with a way out.
+    func testLockInWaitsForGuidedAccess() {
+        let app = launch(["-uitest-reset", "-uitest-seed", "-uitest-arming"])
+        wait(app.buttons["mode-chip"], 15).tap()
+        wait(app.buttons["mode-lockIn"], 5).tap()
+        app.buttons["start"].tap()
+        wait(app.staticTexts["arming"], 5)
+        shot("14-lock-in-arming")
+        app.buttons["Start without Guided Access"].tap()
+        wait(element(app, "focus-time"), 5)
+        XCTAssertEqual(element(app, "mode-badge").label, "Deep Focus")
+    }
+
     // MARK: - Screens
 
     /// Every screen from fixtures, still, for the screenshot review.
     func testScreensTour() {
-        let screens = ["focus", "focus-ring", "focus-digits", "flow", "break", "ready", "complete", "unfinished"]
+        let screens = ["focus", "focus-ring", "focus-digits", "dimmed", "flow", "break", "ready", "complete",
+                       "exam-complete", "unfinished"]
         for screen in screens {
             let app = launch(["-uitest-reset", "-uitest-still", "-uitest-screen", screen])
             sleep(2)
@@ -142,8 +186,30 @@ final class EmberUITests: XCTestCase {
             }
             app.terminate()
         }
+        for (step, name) in [(1, "streak"), (2, "goal"), (3, "rank-up")] {
+            let app = launch(["-uitest-reset", "-uitest-still", "-uitest-screen", "complete", "-uitest-step", "\(step)"])
+            sleep(2)
+            shot("20-complete-\(name)")
+            app.terminate()
+        }
         let app = launch(["-uitest-reset", "-uitest-still", "-uitest-seed"])
         wait(app.buttons["start"], 15)
+        app.buttons["streak-button"].tap()
+        wait(app.navigationBars["Streak"], 5)
+        shot("21-streak-sheet")
+        app.buttons["Done"].tap()
+        app.buttons["mode-chip"].tap()
+        wait(app.buttons["mode-lockIn"], 5)
+        shot("21-mode-sheet")
+        app.buttons["Set up Lock In (Guided Access)"].tap()
+        wait(app.navigationBars["Set up Lock In"], 5)
+        shot("21-lock-in-guide")
+        app.buttons["Done"].tap()
+        app.buttons["Set up Focus Guard (Shortcuts)"].tap()
+        wait(app.navigationBars["Focus Guard"], 5)
+        shot("21-focus-guard-guide")
+        app.buttons["Done"].tap()
+        app.buttons["Done"].tap()
         XCUIDevice.shared.orientation = .landscapeLeft
         sleep(2)
         shot("21-home-landscape")
@@ -151,7 +217,9 @@ final class EmberUITests: XCTestCase {
         app.buttons["settings-button"].tap()
         wait(app.navigationBars["Settings"], 5)
         shot("22-settings")
-        app.buttons["Lock Lab"].tap()
+        app.swipeUp()
+        app.swipeUp()
+        wait(app.buttons["Lock Lab"], 5).tap()
         wait(app.staticTexts["lab-verdict"], 5)
         shot("23-lock-lab")
     }

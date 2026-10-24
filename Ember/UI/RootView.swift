@@ -20,8 +20,8 @@ struct RootView: View {
                     HomeView()
                 }
             }
-            if let record = controller.celebration {
-                CelebrationView(record: record)
+            if let summary = controller.celebration {
+                CelebrationView(summary: summary)
                     .transition(.opacity)
             } else if let info = controller.unfinished {
                 UnfinishedView(info: info)

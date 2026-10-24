@@ -22,6 +22,20 @@ struct Today {
         totalXP = Rewards.totalXP(data.sessions, status: streak.status, days: days)
     }
 
+    /// Monday to Sunday of this week.
+    var week: [CompletionSummary.WeekDay] {
+        let monday = days.weekStart(key)
+        return (0..<7).map { offset in
+            let day = days.adding(offset, to: monday)
+            return .init(key: day, status: streak.status[day], isToday: day == key)
+        }
+    }
+
+    /// The next streak milestone ahead.
+    var nextMilestone: Int {
+        Streak.milestones.first { $0 > streak.current } ?? ((streak.current / 100) + 1) * 100
+    }
+
     var goalProgress: Double { goal > 0 ? min(1, minutes / Double(goal)) : 0 }
     var goalReached: Bool { minutes >= Double(goal) }
     var tier: FlameTier { FlameTier.forStreak(streak.current, lit: streak.todayDone) }

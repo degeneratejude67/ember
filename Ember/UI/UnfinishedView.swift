@@ -68,7 +68,6 @@ struct UnfinishedView: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        .accessibilityIdentifier("unfinished")
     }
 
     private var reasonLine: String {
@@ -86,6 +85,7 @@ struct UnfinishedView: View {
 
     private var countLine: String {
         let minutes = Int(info.record.minutes)
+        if minutes == 0 { return "Your streak is untouched. Start again when you're ready." }
         return minutes == 1 ? "1 minute still counts toward today." : "\(minutes) minutes still count toward today."
     }
 }

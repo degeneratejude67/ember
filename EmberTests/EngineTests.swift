@@ -202,9 +202,13 @@ final class EngineTests: XCTestCase {
 
     func testABlockThatEndedBeforeHeLeftCompletes() {
         var s = started()
-        send(&s, .background, 1510)
-        let record = try! XCTUnwrap(records(send(&s, .active, 1600)).first)
+        // The block's end is noticed on the way out, before the absence matters.
+        let effects = send(&s, .background, 1510) + send(&s, .active, 1600)
+        let record = try! XCTUnwrap(records(effects).first)
         XCTAssertEqual(record.outcome, .completed)
+        XCTAssertEqual(record.endedAt, at(1500).wall)
+        XCTAssertTrue(effects.contains(.cancel(SessionNotice.block + [.nudge])))
+        XCTAssertEqual(s?.phase, .breakTime)
     }
 
     func testLockedAwayTheBlockCompletesAndTheBreakRunsOut() {

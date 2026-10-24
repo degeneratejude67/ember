@@ -1,15 +1,44 @@
 import SwiftUI
 
 /// The running block: a large timer, the goal line, and as few controls as possible.
+/// After 30 s without a touch a dim overlay leaves only the time.
 struct FocusView: View {
     let session: ActiveSession
     @ObservedObject private var store = Store.shared
     @ObservedObject private var controller = SessionController.shared
+    @ObservedObject private var detector = LockDetector.shared
+    @ObservedObject private var audio = Audio.shared
     @State private var starterBannerClosed = false
+    @State private var parkingOpen = false
+    @State private var parkingText = ""
+    @State private var lastTouch = Date()
+
+    private static let dimAfter = 30.0
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { _ in
-            content(now: .now())
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let dimmed = !AppEnv.isUITest && context.date.timeIntervalSince(lastTouch) > Self.dimAfter
+                || AppEnv.value(after: "-uitest-screen") == "dimmed"
+            ZStack {
+                content(now: .now())
+                if dimmed {
+                    dimOverlay(now: .now())
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.6), value: dimmed)
+        }
+        .simultaneousGesture(TapGesture().onEnded { lastTouch = Date() })
+        .alert("Park a thought", isPresented: $parkingOpen) {
+            TextField("It will wait for your break", text: $parkingText)
+                .accessibilityIdentifier("parking-field")
+            Button("Park it") {
+                controller.send(.addParking(parkingText))
+                parkingText = ""
+            }
+            Button("Cancel", role: .cancel) { parkingText = "" }
+        } message: {
+            Text("Write it down so it stops pulling at you. You'll see it at the break.")
         }
     }
 
@@ -24,9 +53,7 @@ struct FocusView: View {
                                : (remaining ?? 0) / max(1, s.plannedSeconds ?? 1)
         let style = store.data.prefs.timerStyle
         let paused = s.phase == .paused
-        let shownTime = countUp ? elapsed : (remaining ?? 0)
-        // In fast UI-test mode a "minute" is one second; show it as minutes all the same.
-        let clock = TimeText.clock(shownTime * 60 / spm)
+        let clock = clockText(now)
 
         return VStack(spacing: 18) {
             header(s)
@@ -55,6 +82,7 @@ struct FocusView: View {
                 starterBanner
             }
             Spacer(minLength: 8)
+            tools(s)
             controls(s, countUp: countUp, paused: paused)
             footnote(s)
         }
@@ -64,8 +92,17 @@ struct FocusView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private func clockText(_ now: Instant) -> String {
+        let shown = session.plannedSeconds == nil
+            ? SessionEngine.focusElapsed(session, at: now)
+            : (SessionEngine.remaining(session, at: now) ?? 0)
+        // In fast UI-test mode a "minute" is one second; show it as minutes all the same.
+        return TimeText.clock(shown * 60 / session.config.secondsPerMinute)
+    }
+
     private func header(_ s: ActiveSession) -> some View {
         let subject = store.data.subject(s.config.subjectID)
+        let locked = s.config.strictness == .lockIn && detector.guidedAccess
         return HStack(spacing: 10) {
             if let subject {
                 Circle().fill(SubjectPalette.color(subject.colorIndex)).frame(width: 10, height: 10)
@@ -82,12 +119,16 @@ struct FocusView: View {
                     .foregroundStyle(Theme.gold)
                     .accessibilityIdentifier("slips")
             }
-            Label(s.config.strictness.label, systemImage: s.config.strictness == .relaxed ? "leaf" : "flame.fill")
+            Label(locked ? "Locked in" : s.config.strictness.label,
+                  systemImage: locked ? "lock.fill" : s.config.strictness == .relaxed ? "leaf" : "flame.fill")
                 .font(.rounded(13, .bold))
-                .foregroundStyle(s.config.strictness == .relaxed ? Theme.teal : Theme.ember)
+                .foregroundStyle(s.config.strictness == .relaxed ? Theme.teal : locked ? Theme.gold : Theme.ember)
+                .lineLimit(1)
+                .fixedSize()
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(Theme.card, in: Capsule())
+                .accessibilityIdentifier("mode-badge")
         }
     }
 
@@ -134,6 +175,7 @@ struct FocusView: View {
                 Text("5 minutes done! The hardest part is over.")
                     .font(.rounded(17, .bold))
                     .foregroundStyle(Theme.text)
+                    .accessibilityIdentifier("starter-banner")
                 Text("It carries on as Flowtime. Finish whenever your focus drops; the break will be a fifth of your time.")
                     .font(.rounded(14, .regular))
                     .foregroundStyle(Theme.dim)
@@ -148,7 +190,36 @@ struct FocusView: View {
             }
         }
         .frame(maxWidth: 480)
-        .accessibilityIdentifier("starter-banner")
+    }
+
+    /// Parking lot and focus noise.
+    private func tools(_ s: ActiveSession) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                parkingOpen = true
+            } label: {
+                Label(s.parking.isEmpty ? "Park a thought" : "Parked: \(s.parking.count)", systemImage: "tray.and.arrow.down.fill")
+            }
+            .accessibilityIdentifier("park")
+            Button {
+                cycleNoise()
+            } label: {
+                Label(audio.noise.map { "\($0.label) noise" } ?? "Noise off",
+                      systemImage: audio.noise == nil ? "speaker.slash.fill" : "waveform")
+            }
+            .accessibilityIdentifier("noise")
+        }
+        .font(.rounded(15, .semibold))
+        .foregroundStyle(Theme.text)
+        .buttonStyle(.bordered)
+        .tint(Theme.cardHigh)
+    }
+
+    private func cycleNoise() {
+        let order: [NoiseColor?] = [nil, .brown, .pink, .white]
+        let i = order.firstIndex(of: store.data.prefs.noise) ?? 0
+        store.data.prefs.noise = order[(i + 1) % order.count]
+        controller.syncNoise()
     }
 
     private func controls(_ s: ActiveSession, countUp: Bool, paused: Bool) -> some View {
@@ -183,5 +254,24 @@ struct FocusView: View {
                 .foregroundStyle(Theme.dim)
                 .multilineTextAlignment(.center)
         }
+    }
+
+    /// Only the time, dim, so the screen doesn't pull at him while he studies.
+    private func dimOverlay(now: Instant) -> some View {
+        ZStack {
+            Color.black.opacity(0.92).ignoresSafeArea()
+            VStack(spacing: 10) {
+                Text(clockText(now))
+                    .font(.rounded(96, .heavy))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.ember.opacity(0.55))
+                Text("Tap to wake")
+                    .font(.rounded(14, .semibold))
+                    .foregroundStyle(Theme.dim.opacity(0.6))
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { lastTouch = Date() }
+        .accessibilityIdentifier("dimmed")
     }
 }
