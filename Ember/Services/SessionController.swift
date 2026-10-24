@@ -33,7 +33,7 @@ final class SessionController: ObservableObject {
         } else if let raw = try? Data(contentsOf: activeURL),
                   let saved = try? JSONDecoder.ember.decode(ActiveSession.self, from: raw) {
             session = saved
-            applyBounces()
+            applyAwayEvents()
             send(.relaunch)
             if session?.config.studiesElsewhere == true && session?.isFocusing == true { startFloatingTimer() }
         }
@@ -54,7 +54,8 @@ final class SessionController: ObservableObject {
         celebration = nil
         unfinished = nil
         studyHint = nil
-        _ = FocusGuard.takeBounces()
+        _ = AwayLog.take()
+        store.data.resume = nil
         let config = SessionConfig(
             preset: preset,
             strictness: strictness,
@@ -64,8 +65,37 @@ final class SessionController: ObservableObject {
             secondsPerMinute: AppEnv.secondsPerMinute,
             dayStartHour: prefs.dayStartHour,
             studyAppID: studyApp?.id,
-            topicID: topicID)
-        let (session, effects) = SessionEngine.start(config, now: .now())
+            topicID: topicID,
+            helperSeconds: Double(prefs.helperSeconds))
+        begin(config, round: 1)
+    }
+
+    /// Leaves the timer during a break or on the ready screen; Home offers to continue at the
+    /// next round with the same technique, course and topic.
+    func breakToMenu() {
+        guard let s = session, !s.isFocusing else { return }
+        store.data.resume = ResumePoint(config: s.config, round: s.round + 1, at: Date())
+        send(.stop)
+    }
+
+    /// Picks up a session left with "Break to menu".
+    func resume() {
+        guard let point = store.data.resume else { return }
+        store.data.resume = nil
+        var config = point.config
+        config.graceSeconds = AppEnv.value(after: "-uitest-grace").flatMap(Double.init) ?? Double(prefs.graceSeconds)
+        config.helperSeconds = Double(prefs.helperSeconds)
+        config.dayStartHour = prefs.dayStartHour
+        celebration = nil
+        unfinished = nil
+        studyHint = nil
+        _ = AwayLog.take()
+        begin(config, round: point.round)
+    }
+
+    private func begin(_ config: SessionConfig, round: Int) {
+        let studyApp = StudyApp.find(config.studyAppID)
+        let (session, effects) = SessionEngine.start(config, now: .now(), round: round)
         self.session = session
         run(effects)
         if UIAccessibility.isGuidedAccessEnabled { send(.guidedAccess(true)) }
@@ -130,20 +160,18 @@ final class SessionController: ObservableObject {
         syncNoise()
     }
 
-    /// Focus Guard noted distracting apps while Ember was away. In Ember-only blocks the trip
-    /// away itself is judged; when studying in another app, a bounce starts the allowed time.
-    private func applyBounces() {
-        let bounces = FocusGuard.takeBounces()
-        guard session?.config.studiesElsewhere == true else { return }
+    /// Where the Shortcuts automations said he went while Ember was away (study app, helper
+    /// app, another app), replayed in order before the absence is judged.
+    private func applyAwayEvents() {
         let now = Instant.now()
-        for date in bounces {
-            send(.distracted(at: Instant(wall: date, mono: now.mono - now.wall.timeIntervalSince(date))))
+        for event in AwayLog.take() {
+            send(.place(event.place, at: Instant(wall: event.at, mono: now.mono - now.wall.timeIntervalSince(event.at))))
         }
     }
 
     /// "I'm still studying" on the check-in notification, possibly with Ember in the background.
     func checkIn() {
-        applyBounces()
+        applyAwayEvents()
         send(.checkIn)
     }
 
@@ -222,7 +250,7 @@ final class SessionController: ObservableObject {
             store.saveNow()
             refreshReminders()
         case .active:
-            applyBounces()
+            applyAwayEvents()
             send(.active)
             importCourses()
         case let .darwinLock(at):

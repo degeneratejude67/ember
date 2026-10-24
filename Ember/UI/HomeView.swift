@@ -94,6 +94,9 @@ struct HomeView: View {
                     .submitLabel(.go)
                     .onSubmit { start(preset) }
                     .accessibilityIdentifier("intent-field")
+                if let point = data.resume {
+                    resumeCard(point, data: data)
+                }
                 Button("Start") { start(preset) }
                     .buttonStyle(ChunkyButtonStyle(height: 62))
                     .accessibilityIdentifier("start")
@@ -134,6 +137,33 @@ struct HomeView: View {
             case .topic:
                 if let subjectID = store.data.prefs.subjectID { TopicPickerSheet(subjectID: subjectID) }
             case let .course(subjectID): CourseDetailView(subjectID: subjectID)
+            }
+        }
+    }
+
+    /// A session left with "Break to menu".
+    private func resumeCard(_ point: ResumePoint, data: AppData) -> some View {
+        let minutes = Int(Date().timeIntervalSince(point.at) / 60)
+        let subject = data.subject(point.config.subjectID)?.name
+        let topic = data.topic(point.config.topicID)?.title
+        let what = [point.config.preset.name, subject, topic].compactMap { $0 }.joined(separator: " · ")
+        return Card {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("On a break for \(minutes < 1 ? "a moment" : TimeText.minutes(minutes))")
+                    .font(.rounded(13, .bold))
+                    .foregroundStyle(Theme.teal)
+                Text("Round \(point.round) of \(what)")
+                    .font(.rounded(17, .bold))
+                    .foregroundStyle(Theme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 12) {
+                    Button("Continue") { controller.resume() }
+                        .buttonStyle(ChunkyButtonStyle(color: Theme.teal, lip: Theme.tealDeep, height: 48))
+                        .accessibilityIdentifier("continue-session")
+                    Button("Not now") { store.data.resume = nil }
+                        .font(.rounded(15, .semibold))
+                        .foregroundStyle(Theme.dim)
+                }
             }
         }
     }

@@ -26,25 +26,23 @@ struct LockInGuide: View {
     }
 }
 
-/// Optional: a Shortcuts automation that bounces him back to Ember from distracting apps
-/// while a block runs.
+/// App detection: Shortcuts automations tell Ember which app he opened, since iPadOS won't.
 struct FocusGuardGuide: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             GuideSteps(
-                intro: "Focus Guard sends you straight back to Ember if you open YouTube, Instagram or a game during a block. Outside blocks those apps open normally. It takes two minutes in the Shortcuts app.",
+                intro: "iPadOS doesn't tell Ember which app you're in, but Shortcuts can. With these three automations, time in CollaNote counts with no limit, Safari, YouTube, Gemini or Claude get 10 minutes, and any other app 3 minutes. Then Ember asks \u{201C}Still studying?\u{201D}, and the block ends only if you don't answer within a minute. In every automation choose \u{201C}Run Immediately\u{201D} and turn off \u{201C}Notify When Run\u{201D}.",
                 steps: [
-                    "Open Shortcuts > Automation > + > App.",
-                    "Choose YouTube, Instagram and any games. Keep \u{201C}Is Opened\u{201D}, choose \u{201C}Run Immediately\u{201D}, then Next.",
-                    "Tap New Blank Automation and add the action \u{201C}Is Ember focusing?\u{201D} (search for Ember).",
-                    "Add an \u{201C}If\u{201D} action: If \u{201C}Is Ember focusing?\u{201D} is true.",
-                    "Inside the If, add \u{201C}Open App\u{201D} and choose Ember. Tap Done.",
-                    "Optional: a second automation, App > Ember > Is Opened > Run Immediately > Set Focus (a Study focus that allows only Ember), silences everything else while you study.",
+                    "Study app: Shortcuts > Automation > + > App. Choose CollaNote (and Slate, Files), keep \u{201C}Is Opened\u{201D}, Run Immediately, Next. New Blank Automation, add \u{201C}Ember: in my study app\u{201D}.",
+                    "Leaving it: + > App. Choose CollaNote (and Slate, Files) again, tick \u{201C}Is Closed\u{201D} and untick \u{201C}Is Opened\u{201D}. Add \u{201C}Ember: in another app\u{201D}.",
+                    "Helper apps: + > App. Choose Safari, YouTube, Gemini, Claude, ChatGPT, keep \u{201C}Is Opened\u{201D}. Add \u{201C}Ember: in a helper app\u{201D}.",
+                    "Optional, to catch the rest: + > App. Choose the apps you drift to (Instagram, WhatsApp, games), keep \u{201C}Is Opened\u{201D}. Add \u{201C}Ember: in another app\u{201D}.",
+                    "Optional: + > App > Ember > Is Opened > Set Focus (a Study focus that allows only Ember and your study apps) silences everything else.",
                 ],
-                footer: "Bouncing back takes a second or two, so it counts as a slip, not a failed block.")
-                .navigationTitle("Focus Guard")
+                footer: "Without these, Ember treats time away as time in your study app when you study in one, and as \u{201C}another app\u{201D} (3 minutes) when you study in Ember only.")
+                .navigationTitle("App detection")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }

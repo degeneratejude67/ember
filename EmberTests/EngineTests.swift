@@ -177,7 +177,7 @@ final class EngineTests: XCTestCase {
         send(&s, .inactive, 300)
         let effects = send(&s, .background, 300.2)
         XCTAssertTrue(effects.contains { if case .schedule(.nudge, _) = $0 { return true } else { return false } })
-        XCTAssertTrue(send(&s, .lock(.protectedData, at: at(310.4)), 310.4).contains(.cancel([.nudge])))
+        XCTAssertTrue(send(&s, .lock(.protectedData, at: at(310.4)), 310.4).contains(.cancel(SessionNotice.away)))
         send(&s, .active, 900)
         XCTAssertEqual(s?.isFocusing, true)
     }
@@ -207,7 +207,7 @@ final class EngineTests: XCTestCase {
         let record = try! XCTUnwrap(records(effects).first)
         XCTAssertEqual(record.outcome, .completed)
         XCTAssertEqual(record.endedAt, at(1500).wall)
-        XCTAssertTrue(effects.contains(.cancel(SessionNotice.block + [.nudge])))
+        XCTAssertTrue(effects.contains(.cancel(SessionNotice.block + SessionNotice.away)))
         XCTAssertEqual(s?.phase, .breakTime)
     }
 
@@ -407,18 +407,20 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(record.minutes, 25, accuracy: 0.001)
     }
 
-    func testAFocusGuardBounceIsASlip() {
+    func testEachTripOutOfTheStudyAppIsASlip() {
         var s = started(studyConfig())
-        send(&s, .distracted(at: at(300)), 300)
-        send(&s, .distracted(at: at(600)), 600)
+        send(&s, .background, 100)
+        send(&s, .place(.other, at: at(300)), 300)
+        send(&s, .place(.study, at: at(302)), 302)
+        send(&s, .place(.helper, at: at(600)), 600)
         XCTAssertEqual(s?.slips, 2)
-        XCTAssertEqual(records(send(&s, .tick, 1501)).first?.slips, 2)
     }
 
-    // MARK: - Time allowed away, with check-ins
+    // MARK: - Time allowed away, by app
 
-    private func allowConfig(_ seconds: Double = 600, study: Bool = false) -> SessionConfig {
-        var c = config(grace: seconds)
+    private func allowConfig(other: Double = 180, helper: Double = 600, study: Bool = false) -> SessionConfig {
+        var c = config(grace: other)
+        c.helperSeconds = helper
         if study { c.studyAppID = "collanote" }
         return c
     }
@@ -427,18 +429,18 @@ final class EngineTests: XCTestCase {
         effects.compactMap { if case let .schedule(n, date) = $0, n == notice { return date } else { return nil } }.first
     }
 
-    func testLeavingSchedulesACheckInInsteadOfTheNudge() {
+    func testLeavingSchedulesACheckInAfterThreeMinutes() {
         var s = started(allowConfig())
         let effects = send(&s, .background, 100)
-        XCTAssertEqual(scheduled(effects, .checkIn), at(700).wall)
-        XCTAssertEqual(scheduled(effects, .awayEnd), at(760).wall)
+        XCTAssertEqual(scheduled(effects, .checkIn), at(280).wall)
+        XCTAssertEqual(scheduled(effects, .awayEnd), at(340).wall)
         XCTAssertNil(scheduled(effects, .nudge))
     }
 
-    func testTenMinutesInSafariIsFine() {
+    func testThreeMinutesInAnotherAppIsFine() {
         var s = started(allowConfig())
         send(&s, .background, 100)
-        send(&s, .active, 650)
+        send(&s, .active, 250)
         XCTAssertEqual(s?.isFocusing, true)
         XCTAssertEqual(s?.slips, 1)
     }
@@ -446,32 +448,51 @@ final class EngineTests: XCTestCase {
     func testTheMinuteToAnswerStillCounts() {
         var s = started(allowConfig())
         send(&s, .background, 100)
-        send(&s, .active, 755)
+        send(&s, .active, 335)
         XCTAssertEqual(s?.isFocusing, true)
     }
 
     func testNoAnswerToTheCheckInEndsTheBlock() {
         var s = started(allowConfig())
         send(&s, .background, 100)
-        let effects = send(&s, .active, 800)
+        let effects = send(&s, .active, 400)
         XCTAssertNil(s)
         let record = try! XCTUnwrap(records(effects).first)
         XCTAssertEqual(record.reason, .noAnswer)
-        XCTAssertEqual(record.minutes, 700.0 / 60, accuracy: 0.01, "the allowed time counts")
+        XCTAssertEqual(record.minutes, 280.0 / 60, accuracy: 0.01, "the allowed time counts")
     }
 
-    func testAnsweringTheCheckInStartsTheAllowanceAgain() {
+    func testAHelperAppGetsTenMinutes() {
         var s = started(allowConfig())
         send(&s, .background, 100)
-        let effects = send(&s, .checkIn, 720)
-        XCTAssertEqual(scheduled(effects, .checkIn), at(1320).wall)
-        send(&s, .active, 1300)
+        let effects = send(&s, .place(.helper, at: at(102)), 102)
+        XCTAssertEqual(scheduled(effects, .checkIn), at(702).wall)
+        send(&s, .active, 650)
+        XCTAssertEqual(s?.isFocusing, true)
+        XCTAssertEqual(s?.slips, 1, "one trip, not two")
+    }
+
+    func testTenMinutesInAHelperAppWithNoAnswerEndsTheBlock() {
+        var s = started(allowConfig())
+        send(&s, .background, 100)
+        send(&s, .place(.helper, at: at(102)), 102)
+        let record = try! XCTUnwrap(records(send(&s, .active, 800)).first)
+        XCTAssertEqual(record.reason, .noAnswer)
+        XCTAssertEqual(record.minutes, 702.0 / 60, accuracy: 0.01)
+    }
+
+    func testAnsweringTheCheckInStartsTheClockAgain() {
+        var s = started(allowConfig())
+        send(&s, .background, 100)
+        let effects = send(&s, .checkIn, 290)
+        XCTAssertEqual(scheduled(effects, .checkIn), at(470).wall)
+        send(&s, .active, 450)
         XCTAssertEqual(s?.isFocusing, true)
     }
 
     func testTheBlockStillCompletesWhenItEndsDuringTheAllowance() {
         var s = started(allowConfig())
-        send(&s, .background, 1000)
+        send(&s, .background, 1400)
         let record = try! XCTUnwrap(records(send(&s, .active, 2000)).first)
         XCTAssertEqual(record.outcome, .completed)
         XCTAssertEqual(record.endedAt, at(1500).wall)
@@ -480,37 +501,67 @@ final class EngineTests: XCTestCase {
     func testAKilledAppIsJudgedTheSameWayOnRelaunch() {
         var s = started(allowConfig())
         send(&s, .background, 100)
-        send(&s, .relaunch, 400)
+        send(&s, .relaunch, 250)
         XCTAssertEqual(s?.isFocusing, true)
-        send(&s, .background, 500)
-        let effects = send(&s, .relaunch, 1300)
-        XCTAssertEqual(records(effects).first?.reason, .noAnswer)
+        send(&s, .background, 300)
+        XCTAssertEqual(records(send(&s, .relaunch, 700)).first?.reason, .noAnswer)
     }
 
-    func testStudyingElsewhereADistractionStartsTheAllowance() {
+    func testTheStudyAppHasNoLimit() {
         var s = started(allowConfig(study: true))
         let away = send(&s, .background, 100)
-        XCTAssertNil(scheduled(away, .checkIn), "time in the study app has no limit")
-        let effects = send(&s, .distracted(at: at(200)), 200)
-        XCTAssertEqual(scheduled(effects, .checkIn), at(800).wall)
-        let end = send(&s, .active, 900)
-        XCTAssertEqual(records(end).first?.reason, .noAnswer)
+        XCTAssertNil(scheduled(away, .checkIn))
+        send(&s, .active, 1400)
+        XCTAssertEqual(s?.isFocusing, true)
+        XCTAssertEqual(s?.slips, 0)
     }
 
-    func testStudyingElsewhereACheckInClearsTheDistraction() {
+    func testLeavingTheStudyAppStartsThreeMinutes() {
         var s = started(allowConfig(study: true))
         send(&s, .background, 100)
-        send(&s, .distracted(at: at(200)), 200)
-        send(&s, .checkIn, 810)
+        let effects = send(&s, .place(.other, at: at(500)), 500)
+        XCTAssertEqual(scheduled(effects, .checkIn), at(680).wall)
+        XCTAssertEqual(records(send(&s, .active, 800)).first?.reason, .noAnswer)
+    }
+
+    func testBackToTheStudyAppStopsTheClock() {
+        var s = started(allowConfig(study: true))
+        send(&s, .background, 100)
+        send(&s, .place(.other, at: at(500)), 500)
+        let back = send(&s, .place(.study, at: at(600)), 600)
+        XCTAssertTrue(back.contains(.cancel(SessionNotice.away)))
+        XCTAssertNil(scheduled(back, .checkIn))
+        send(&s, .active, 1400)
+        XCTAssertEqual(s?.isFocusing, true)
+        XCTAssertEqual(s?.slips, 1)
+    }
+
+    func testTheSamePlaceAgainKeepsItsClock() {
+        var s = started(allowConfig())
+        send(&s, .background, 100)
+        send(&s, .place(.helper, at: at(110)), 110)
+        XCTAssertTrue(send(&s, .place(.helper, at: at(500)), 500).isEmpty)
+        XCTAssertEqual(records(send(&s, .active, 800)).first?.reason, .noAnswer, "the clock ran from 110")
+    }
+
+    func testAPlaceIsIgnoredWhileTheScreenIsLocked() {
+        var s = started(allowConfig())
+        send(&s, .inactive, 100)
+        send(&s, .lock(.darwin, at: at(100.2)), 100.2)
+        send(&s, .background, 100.3)
+        XCTAssertTrue(send(&s, .place(.other, at: at(200)), 200).isEmpty)
         send(&s, .active, 1400)
         XCTAssertEqual(s?.isFocusing, true)
     }
 
-    func testStudyingElsewhereWithoutADistractionNeverEnds() {
-        var s = started(allowConfig(study: true))
+    func testStrictModeTreatsHelperAppsStrictlyToo() {
+        var c = config()
+        c.helperSeconds = 600
+        var s = started(c)
         send(&s, .background, 100)
-        send(&s, .active, 1400)
-        XCTAssertEqual(s?.isFocusing, true)
+        send(&s, .place(.helper, at: at(101)), 101)
+        send(&s, .active, 200)
+        XCTAssertNil(s, "strict: 10 s anywhere")
     }
 
     func testABlockOnATopicRecordsIt() {

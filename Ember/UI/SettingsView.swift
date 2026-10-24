@@ -20,23 +20,29 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Picker("Time allowed in other apps", selection: $store.data.prefs.graceSeconds) {
+                    Picker("Any other app", selection: $store.data.prefs.graceSeconds) {
                         Text("10 seconds (strict)").tag(10)
                         Text("2 minutes").tag(120)
+                        Text("3 minutes").tag(180)
+                        Text("5 minutes").tag(300)
+                    }
+                    .accessibilityIdentifier("allowance-picker")
+                    Picker("Helper apps", selection: $store.data.prefs.helperSeconds) {
                         Text("5 minutes").tag(300)
                         Text("10 minutes").tag(600)
                         Text("15 minutes").tag(900)
+                        Text("20 minutes").tag(1200)
                     }
-                    .accessibilityIdentifier("allowance-picker")
+                    .disabled(prefs.graceSeconds < 120)
                     Picker("Mode for new blocks", selection: $store.data.prefs.strictness) {
                         ForEach(Strictness.allCases) { Text($0.label).tag($0) }
                     }
                     Button("Set up Lock In (Guided Access)") { guide = .lockIn }
-                    Button("Set up Focus Guard (Shortcuts)") { guide = .focusGuard }
+                    Button("Set up App detection (Shortcuts)") { guide = .focusGuard }
                 } header: {
                     Text("Deep Focus")
                 } footer: {
-                    Text("Look something up in Safari or Gemini, answer a message: the block keeps running. When the time is up, Ember asks \u{201C}Still studying?\u{201D} and the block ends only if there's no answer within a minute. Locking the screen and Split View are always fine.")
+                    Text("Your study app (CollaNote, Slate) has no limit, helper apps (Safari, YouTube, Gemini, Claude) get the longer time, and any other app the shorter one. When the time is up, Ember asks \u{201C}Still studying?\u{201D}; the block ends only if there's no answer within a minute. Ember can only tell the apps apart with the App detection automations (Set up App detection). Locking the screen and Split View are always fine.")
                 }
 
                 Section("Timer") {

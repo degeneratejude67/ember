@@ -15,10 +15,22 @@ struct SessionConfig: Codable, Equatable {
     var studyAppID: String?
     /// The course topic for this block.
     var topicID: UUID?
+    /// Time allowed in helper apps (Safari, YouTube, Gemini, Claude); `graceSeconds` is the
+    /// time allowed anywhere else.
+    var helperSeconds: Double?
 
     var studiesElsewhere: Bool { studyAppID != nil }
     /// From 2 minutes of allowed time away, Ember checks in instead of ending the block.
     var checksIn: Bool { graceSeconds >= 120 }
+
+    /// How long he may stay in a place before Ember checks in; nil means no limit.
+    func allowance(_ place: AwayPlace) -> Double? {
+        switch place {
+        case .study: return nil
+        case .helper: return checksIn ? max(graceSeconds, helperSeconds ?? 600) : graceSeconds
+        case .other: return graceSeconds
+        }
+    }
 }
 
 enum SessionPhase: String, Codable {
@@ -32,17 +44,49 @@ enum LockSource: String, Codable {
     case protectedData
 }
 
+/// Where he is while away from Ember, as far as Ember can tell. Shortcuts automations tell
+/// it when he opens his study app, a helper app, or anything else.
+enum AwayPlace: String, Codable {
+    /// CollaNote, Slate, Files: no limit.
+    case study
+    /// Safari, YouTube, Gemini, Claude: the longer allowance.
+    case helper
+    /// Anything else: the shorter allowance.
+    case other
+}
+
+struct PlaceMark: Codable, Equatable {
+    var at: Instant
+    var place: AwayPlace
+}
+
 /// One absence while a block or break runs.
 struct AwayRecord: Codable, Equatable {
     var inactiveAt: Instant?
     var backgroundAt: Instant?
     var lockedAt: Instant?
     var lockSource: LockSource?
-    /// He answered "Still studying?" here; the allowed time away starts again from this moment.
-    var checkedInAt: Instant?
-    /// Studying in another app: Focus Guard saw a distracting app open here, which starts the
-    /// allowed time.
-    var distractedAt: Instant?
+    /// Where he went, in order. The first mark is set on leaving Ember.
+    var places: [PlaceMark] = []
+    /// Moments he answered "Still studying?".
+    var checkIns: [Instant] = []
+
+    init(inactiveAt: Instant? = nil, backgroundAt: Instant? = nil) {
+        self.inactiveAt = inactiveAt
+        self.backgroundAt = backgroundAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        inactiveAt = c.optional(.inactiveAt)
+        backgroundAt = c.optional(.backgroundAt)
+        lockedAt = c.optional(.lockedAt)
+        lockSource = c.optional(.lockSource)
+        places = c.value(.places, [])
+        checkIns = c.value(.checkIns, [])
+    }
+
+    var currentPlace: AwayPlace? { places.last?.place }
 }
 
 /// The running session, saved to active.json on every change so a relaunch can pick it up.
@@ -95,8 +139,8 @@ enum SessionEvent: Equatable {
     /// The app started with a saved session.
     case relaunch
     case addParking(String)
-    /// Focus Guard saw a distracting app (YouTube, games) open.
-    case distracted(at: Instant)
+    /// An automation said he opened his study app, a helper app, or another app.
+    case place(AwayPlace, at: Instant)
     /// He answered "I'm still studying" to the check-in.
     case checkIn
 }
@@ -284,10 +328,16 @@ enum SessionEngine {
             var away = s.away ?? AwayRecord(inactiveAt: now)
             away.backgroundAt = now
             s.away = away
-            if s.isFocusing && s.config.strictness.polices && away.lockedAt == nil && !s.config.studiesElsewhere {
+            if s.isFocusing && away.places.isEmpty {
+                // Without an automation saying otherwise: studying in another app means he went
+                // there; an Ember-only block means anywhere else.
+                away.places = [PlaceMark(at: now, place: s.config.studiesElsewhere ? .study : .other)]
+                s.away = away
+            }
+            if s.isFocusing && s.config.strictness.polices && away.lockedAt == nil, let place = s.away?.currentPlace {
                 if s.config.checksIn {
-                    effects += checkInNotices(from: away.checkedInAt ?? now, s)
-                } else {
+                    effects += checkInNotices(place, from: now, s)
+                } else if place != .study {
                     effects.append(.schedule(.nudge, at: now.wall.addingTimeInterval(nudgeDelay)))
                 }
             }
@@ -332,28 +382,29 @@ enum SessionEngine {
             }
             effects.append(.save)
 
-        case let .distracted(at):
-            guard s.isFocusing else { return [] }
-            s.slips += 1
-            if s.config.studiesElsewhere, s.config.checksIn, var away = s.away {
-                // a check-in after the last distraction cleared it
-                let cleared = away.checkedInAt.map { checked in away.distractedAt.map { checked.mono > $0.mono } ?? true } ?? false
-                if away.distractedAt == nil || cleared {
-                    away.distractedAt = at
-                    s.away = away
-                    effects += checkInNotices(from: at, s)
+        case let .place(place, at):
+            guard s.isFocusing, var away = s.away, away.lockedAt == nil else { return [] }
+            // the same place again keeps its clock running
+            guard away.currentPlace != place else { return [] }
+            away.places.append(PlaceMark(at: at, place: place))
+            s.away = away
+            if place != .study { s.slips += 1 }
+            effects.append(.cancel(SessionNotice.away))
+            if s.config.strictness.polices {
+                if s.config.checksIn {
+                    effects += checkInNotices(place, from: at, s)
+                } else if place != .study {
+                    effects.append(.schedule(.nudge, at: at.wall.addingTimeInterval(nudgeDelay)))
                 }
             }
             effects.append(.save)
 
         case .checkIn:
             guard s.isFocusing, var away = s.away else { return [] }
-            away.checkedInAt = now
+            away.checkIns.append(now)
             s.away = away
             effects.append(.cancel([.checkIn, .awayEnd]))
-            if !s.config.studiesElsewhere && s.config.checksIn {
-                effects += checkInNotices(from: now, s)
-            }
+            if let place = away.currentPlace, s.config.checksIn { effects += checkInNotices(place, from: now, s) }
             effects.append(.save)
 
         case let .addParking(text):
@@ -472,36 +523,40 @@ enum SessionEngine {
         if let planned = s.plannedSeconds, focusElapsed(s, at: left) >= planned { return [] }
         if away.lockedAt != nil || !s.config.strictness.polices { return [] }
 
-        // The allowed time away runs from leaving (or the last check-in); when studying in
-        // another app, only from Focus Guard seeing a distracting app.
-        let clock: Instant
-        if s.config.studiesElsewhere {
-            guard s.config.checksIn, let distracted = away.distractedAt,
-                  away.checkedInAt.map({ $0.mono < distracted.mono }) ?? true else { return [] }
-            clock = distracted
-        } else {
-            clock = away.checkedInAt ?? left
-        }
-        let allowance = s.config.graceSeconds
+        // Walk through where he was. In each place the clock runs from arriving (or from the
+        // last answered check-in there); a place with no limit never runs out.
+        let marks = away.places.isEmpty
+            ? [PlaceMark(at: left, place: s.config.studiesElsewhere ? .study : .other)]
+            : away.places
         let window = s.config.checksIn ? checkInWindow : 0
-        if clock.seconds(to: now) <= allowance + window {
-            if !s.config.studiesElsewhere { s.slips += 1 }
-            state = s
-            return [.save]
+        for (i, mark) in marks.enumerated() {
+            let end = i + 1 < marks.count ? marks[i + 1].at : now
+            guard let allowance = s.config.allowance(mark.place) else { continue }
+            var clock = mark.at
+            for checkIn in away.checkIns where checkIn.mono >= mark.at.mono && checkIn.mono < end.mono
+                && clock.seconds(to: checkIn) <= allowance + window {
+                clock = checkIn
+            }
+            guard clock.seconds(to: end) > allowance + window else { continue }
+            // Out of time; the block still completes if it would have ended first.
+            let deadline = clock.adding(allowance + window)
+            if let planned = s.plannedSeconds, focusElapsed(s, at: deadline) >= planned { return [] }
+            state = nil
+            return fail(s, reason: s.config.checksIn ? .noAnswer : .left,
+                        countedUntil: s.config.checksIn ? clock.adding(allowance) : mark.at,
+                        awaySeconds: left.seconds(to: now))
         }
-        // Out of time; the block still completes if it would have ended first.
-        let deadline = clock.adding(allowance + window)
-        if let planned = s.plannedSeconds, focusElapsed(s, at: deadline) >= planned { return [] }
-        state = nil
-        return fail(s, reason: s.config.checksIn ? .noAnswer : .left,
-                    countedUntil: s.config.checksIn ? clock.adding(allowance) : left,
-                    awaySeconds: left.seconds(to: now))
+        // A trip away is a slip; place changes reported by the automations counted themselves.
+        if away.places.count <= 1, marks.first?.place != .study { s.slips += 1 }
+        state = s
+        return [.save]
     }
 
-    /// "Still studying?" when the allowed time is up, and the notice that the block ended a
-    /// minute later if there was no answer.
-    static func checkInNotices(from clock: Instant, _ s: ActiveSession) -> [Effect] {
-        let at = clock.wall.addingTimeInterval(s.config.graceSeconds)
+    /// "Still studying?" when the allowed time in this place is up, and the notice that the
+    /// block ended a minute later if there was no answer. A place with no limit has neither.
+    static func checkInNotices(_ place: AwayPlace, from clock: Instant, _ s: ActiveSession) -> [Effect] {
+        guard let allowance = s.config.allowance(place) else { return [.cancel([.checkIn, .awayEnd])] }
+        let at = clock.wall.addingTimeInterval(allowance)
         return [.schedule(.checkIn, at: at), .schedule(.awayEnd, at: at.addingTimeInterval(checkInWindow))]
     }
 

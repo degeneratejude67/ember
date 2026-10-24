@@ -166,7 +166,7 @@ struct ModeSheet: View {
                         Label("Set up Lock In (Guided Access)", systemImage: "lock.fill")
                     }
                     Button { guide = .focusGuard } label: {
-                        Label("Set up Focus Guard (Shortcuts)", systemImage: "shield.lefthalf.filled")
+                        Label("Set up App detection (Shortcuts)", systemImage: "shield.lefthalf.filled")
                     }
                 }
             }
@@ -229,7 +229,7 @@ struct StudyAppSheet: View {
                                note: app.url == nil ? "Switch to it yourself after Start." : "Start opens it for you.")
                     }
                 } footer: {
-                    Text("When you study in another app, the time there counts as focus. iPadOS doesn't tell Ember which app you're in, so set up Focus Guard: then YouTube, Instagram or a game sends you straight back.")
+                    Text("Time in your study app counts as focus. iPadOS doesn't tell Ember which app you're in, so set up App detection (Mode > Set up App detection): then leaving CollaNote starts a 3-minute clock, and Safari, YouTube, Gemini or Claude a 10-minute one, before Ember checks in.")
                 }
                 Section("Keep the timer in sight") {
                     tip("rectangle.split.2x1", "Split View: open your notes, then drag Ember from the Dock to the side of the screen.")

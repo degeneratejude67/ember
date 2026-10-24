@@ -203,7 +203,7 @@ struct FocusView: View {
                     .font(.rounded(17, .bold))
                     .foregroundStyle(Theme.text)
                     .accessibilityIdentifier("study-banner")
-                Text(controller.studyHint ?? "Time in \(app.name) counts as focus. With Focus Guard set up, opening YouTube or a game sends you straight back here.")
+                Text(controller.studyHint ?? "Time in \(app.name) counts as focus. With App detection set up, leaving it starts a 3-minute clock, and helper apps a 10-minute one.")
                     .font(.rounded(14, .regular))
                     .foregroundStyle(Theme.dim)
                     .fixedSize(horizontal: false, vertical: true)
@@ -285,7 +285,7 @@ struct FocusView: View {
     @ViewBuilder private func footnote(_ s: ActiveSession) -> some View {
         if s.config.strictness.polices && !s.config.studiesElsewhere {
             Text(s.config.checksIn
-                 ? "You can leave Ember for up to \(Int(s.config.graceSeconds / 60)) min; then it checks in. Locking the screen is fine."
+                 ? "Other apps: \(Int(s.config.graceSeconds / 60)) min, helper apps: \(Int((s.config.allowance(.helper) ?? 600) / 60)) min, then Ember checks in. Locking the screen is fine."
                  : "Leaving Ember for more than \(Int(s.config.graceSeconds)) s ends the block. Locking the screen is fine.")
                 .font(.rounded(13, .medium))
                 .foregroundStyle(Theme.dim)

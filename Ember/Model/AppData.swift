@@ -8,7 +8,9 @@ struct Prefs: Codable, Equatable {
     /// How long he may be away from Ember (another app) before it checks in: 10 s is strict;
     /// from 2 minutes up, Ember asks "Still studying?" when the time is up and ends the block
     /// only if there is no answer within a minute.
-    var graceSeconds = 600
+    var graceSeconds = 180
+    /// Time allowed in helper apps (Safari, YouTube, Gemini, Claude) before Ember checks in.
+    var helperSeconds = 600
     var timerStyle: TimerStyle = .disc
     var soundsOn = true
     var noise: NoiseColor?
@@ -35,6 +37,7 @@ struct Prefs: Codable, Equatable {
         dayStartHour = c.value(.dayStartHour, d.dayStartHour)
         strictness = c.value(.strictness, d.strictness)
         graceSeconds = c.value(.graceSeconds, d.graceSeconds)
+        helperSeconds = c.value(.helperSeconds, d.helperSeconds)
         timerStyle = c.value(.timerStyle, d.timerStyle)
         soundsOn = c.value(.soundsOn, d.soundsOn)
         noise = c.optional(.noise)
@@ -77,6 +80,8 @@ struct AppData: Codable, Equatable {
     var sessions: [SessionRecord] = []
     var topics: [Topic] = []
     var papers: [PastPaper] = []
+    /// A session left with "Break to menu", to continue from Home.
+    var resume: ResumePoint?
 
     init() {}
 
@@ -89,6 +94,7 @@ struct AppData: Codable, Equatable {
         sessions = c.value(.sessions, LossyArray<SessionRecord>()).items
         topics = c.value(.topics, LossyArray<Topic>()).items
         papers = c.value(.papers, LossyArray<PastPaper>()).items
+        resume = c.optional(.resume)
     }
 
     /// A course's topics in their order.
@@ -148,4 +154,11 @@ struct LossyArray<Element: Decodable>: Decodable {
     private struct Skip: Decodable {
         init(from decoder: Decoder) throws {}
     }
+}
+
+/// Where to pick a session up again after "Break to menu".
+struct ResumePoint: Codable, Equatable {
+    var config: SessionConfig
+    var round: Int
+    var at: Date
 }

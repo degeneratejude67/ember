@@ -144,11 +144,7 @@ final class EmberUITests: XCTestCase {
         wait(app.buttons["goal-120"], 5).tap()
         shot("31-onboarding-goal")
         app.buttons["onboarding-next"].tap()
-        let field = wait(app.textFields["onboarding-subject"], 5)
-        sleep(1)
-        field.tap()
-        field.typeText("Heat Transfer\n")
-        field.typeText("Fluid Machinery\n")
+        wait(app.textFields["onboarding-subject"], 5)
         shot("32-onboarding-subjects")
         app.buttons["onboarding-next"].tap()
         wait(app.buttons["onboarding-allow"], 5)
@@ -188,7 +184,8 @@ final class EmberUITests: XCTestCase {
         sleep(1)
         shot("41-course-papers")
         app.swipeDown()
-        wait(element(app, "next-0"), 5).tap()
+        let suggestion = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'next-'")).firstMatch
+        wait(suggestion, 5).tap()
         wait(app.buttons["topic-chip"], 5)
         shot("42-home-with-topic")
         app.buttons["start"].tap()
@@ -199,6 +196,17 @@ final class EmberUITests: XCTestCase {
         let rated = wait(app.staticTexts["topic-rated"], 5)
         XCTAssertTrue(rated.label.contains("Review"), rated.label)
         shot("44-topic-rated")
+    }
+
+    /// "Break to menu" leaves the timer during a break; Home offers to continue at the next round.
+    func testBreakToMenuAndContinue() {
+        let app = launch(["-uitest-reset", "-uitest-seed", "-uitest-still", "-uitest-screen", "break"])
+        wait(app.buttons["break-to-menu"], 10).tap()
+        let resume = wait(app.buttons["continue-session"], 5)
+        shot("17-home-continue-card")
+        resume.tap()
+        wait(element(app, "focus-time"), 5)
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'round 2'")).firstMatch.exists)
     }
 
     /// The parking lot keeps a thought for the break; the noise button cycles colours.

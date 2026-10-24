@@ -59,6 +59,7 @@ struct BreakView: View {
             }
             .frame(maxWidth: 420)
             .padding(.top, 6)
+            menuButton
         }
     }
 
@@ -76,11 +77,24 @@ struct BreakView: View {
                 .buttonStyle(ChunkyButtonStyle(height: 62))
                 .frame(maxWidth: 420)
                 .accessibilityIdentifier("next-round")
+            menuButton
             Button("End session") { controller.send(.stop) }
                 .font(.rounded(16, .semibold))
                 .foregroundStyle(Theme.dim)
                 .accessibilityIdentifier("end-session")
         }
+    }
+
+    /// A free break: off the timer, back to Home, with Continue waiting there.
+    private var menuButton: some View {
+        Button {
+            controller.breakToMenu()
+        } label: {
+            Label("Break to menu, continue later", systemImage: "house.fill")
+                .font(.rounded(16, .semibold))
+                .foregroundStyle(Theme.teal)
+        }
+        .accessibilityIdentifier("break-to-menu")
     }
 
     private var parkingList: some View {
