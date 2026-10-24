@@ -71,7 +71,7 @@ jobs:
 
       - name: Compact screenshots on iPhone simulator
         if: ${{ !cancelled() }}
-        timeout-minutes: 8
+        timeout-minutes: 12
         run: |
           xcrun simctl boot "${{ steps.sim.outputs.iphone }}" || true
           mkdir -p shots/iphone

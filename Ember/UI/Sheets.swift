@@ -109,6 +109,7 @@ struct SubjectSheet: View {
 
     private func choice(_ id: UUID?, name: String, color: Color) -> some View {
         Button {
+            if store.data.prefs.subjectID != id { store.data.prefs.topicID = nil }
             store.data.prefs.subjectID = id
             dismiss()
         } label: {

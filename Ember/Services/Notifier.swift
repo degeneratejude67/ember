@@ -10,6 +10,28 @@ enum Notifier {
         var sound: SoundEffect
     }
 
+    static let checkInCategory = "checkin"
+    static let checkInOK = "checkin.ok"
+    static let checkInBack = "checkin.back"
+
+    static func checkInContent(minutes: Int) -> Content {
+        Content(title: "Still studying?",
+                body: "You've been away from Ember for \(minutes) minutes. Tap \u{201C}I'm still studying\u{201D} or come back, or the block ends in a minute.",
+                sound: .nudge)
+    }
+
+    static let awayEndContent = Content(title: "Block ended",
+                                        body: "No answer to the check-in, so the block ended. The minutes before still count.",
+                                        sound: .fizzle)
+
+    /// The check-in's two buttons: answer from the notification, or jump back into Ember.
+    static func registerCategories() {
+        let ok = UNNotificationAction(identifier: checkInOK, title: "I'm still studying", options: [])
+        let back = UNNotificationAction(identifier: checkInBack, title: "Back to Ember", options: [.foreground])
+        let category = UNNotificationCategory(identifier: checkInCategory, actions: [ok, back], intentIdentifiers: [], options: [])
+        UNUserNotificationCenter.current().setNotificationCategories([category])
+    }
+
     static func requestAuthorizationIfNeeded() {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
@@ -24,6 +46,7 @@ enum Notifier {
         body.title = content.title
         body.body = content.body
         body.sound = UNNotificationSound(named: UNNotificationSoundName(content.sound.fileName))
+        if notice == .checkIn { body.categoryIdentifier = checkInCategory }
         let interval = max(1, date.timeIntervalSinceNow)
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: notice.rawValue, content: body, trigger: trigger))

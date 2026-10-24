@@ -11,9 +11,14 @@ struct HomeView: View {
     @State private var sheet: HomeSheet?
     @FocusState private var intentFocused: Bool
 
-    enum HomeSheet: String, Identifiable {
-        case technique, subject, mode, settings, streak, progress, exams, studyApp
-        var id: String { rawValue }
+    enum HomeSheet: Identifiable {
+        case technique, subject, mode, settings, streak, progress, exams, studyApp, topic
+        case course(UUID)
+
+        var id: String {
+            if case let .course(subjectID) = self { return "course-\(subjectID)" }
+            return String(describing: self)
+        }
     }
 
     var body: some View {
@@ -22,6 +27,8 @@ struct HomeView: View {
         let greeting = today.greeting(hour: Calendar.current.component(.hour, from: Date()))
         let preset = data.prefs.preset
         let subject = data.subject(data.prefs.subjectID)
+        let courseTopics = data.topics(of: subject?.id)
+        let topic = data.topic(data.prefs.topicID).flatMap { $0.subjectID == subject?.id ? $0 : nil }
 
         ScrollView {
             VStack(spacing: 18) {
@@ -40,10 +47,12 @@ struct HomeView: View {
                     .padding(.vertical, 12)
                     .padding(.horizontal, 16)
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                courses(data)
                 if let exam = today.nextExam {
                     Button { sheet = .exams } label: { examChip(exam, subject: data.subject(exam.subjectID)) }
                         .buttonStyle(.plain)
-                } else {
+                        .accessibilityIdentifier("exam-chip")
+                                } else {
                     Button { sheet = .exams } label: {
                         Label("Add your exams", systemImage: "calendar.badge.plus")
                             .font(.rounded(15, .semibold))
@@ -65,6 +74,12 @@ struct HomeView: View {
                     ChoiceChip(caption: "Study in", title: StudyApp.find(data.prefs.studyAppID)?.name ?? "Ember only",
                                identifier: "study-chip") {
                         sheet = .studyApp
+                    }
+                    if !courseTopics.isEmpty {
+                        ChoiceChip(caption: "Topic", title: topic?.title ?? "Any topic",
+                                   dot: topic.map { _ in Theme.gold }, identifier: "topic-chip") {
+                            sheet = .topic
+                        }
                     }
                 }
                 TextField("By the end I will…", text: $intent)
@@ -116,6 +131,33 @@ struct HomeView: View {
             case .progress: StatsView()
             case .exams: ExamsView()
             case .studyApp: StudyAppSheet()
+            case .topic:
+                if let subjectID = store.data.prefs.subjectID { TopicPickerSheet(subjectID: subjectID) }
+            case let .course(subjectID): CourseDetailView(subjectID: subjectID)
+            }
+        }
+    }
+
+    /// The courses, each with its progress ring; tapping one opens its topics.
+    @ViewBuilder private func courses(_ data: AppData) -> some View {
+        let subjects = data.activeSubjects
+        if !subjects.isEmpty {
+            let now = Date()
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(subjects) { subject in
+                        Button {
+                            sheet = .course(subject.id)
+                        } label: {
+                            CourseCard(subject: subject, topics: data.topics(of: subject.id),
+                                       exam: data.exams.filter { $0.subjectID == subject.id && $0.at > now }.min { $0.at < $1.at },
+                                       now: now)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("course-\(subject.name)")
+                    }
+                }
+                .padding(.horizontal, 2)
             }
         }
     }
@@ -186,7 +228,6 @@ struct HomeView: View {
         .padding(.vertical, 8)
         .background((urgent ? Theme.danger : (subject.map { SubjectPalette.color($0.colorIndex) } ?? Theme.dim)).opacity(0.15),
                     in: Capsule())
-        .accessibilityIdentifier("exam-chip")
     }
 
     private func start(_ preset: Preset) {
@@ -202,8 +243,10 @@ struct HomeView: View {
 
     private func begin(_ preset: Preset, strictness: Strictness) {
         armed = nil
-        controller.start(preset: preset, strictness: strictness, subjectID: store.data.prefs.subjectID, intent: intent,
-                         studyApp: StudyApp.find(store.data.prefs.studyAppID))
+        let prefs = store.data.prefs
+        let topicID = store.data.topic(prefs.topicID).flatMap { $0.subjectID == prefs.subjectID ? $0.id : nil }
+        controller.start(preset: preset, strictness: strictness, subjectID: prefs.subjectID, intent: intent,
+                         studyApp: StudyApp.find(prefs.studyAppID), topicID: topicID)
         intent = ""
     }
 }

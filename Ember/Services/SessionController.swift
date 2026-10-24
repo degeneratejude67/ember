@@ -33,10 +33,12 @@ final class SessionController: ObservableObject {
         } else if let raw = try? Data(contentsOf: activeURL),
                   let saved = try? JSONDecoder.ember.decode(ActiveSession.self, from: raw) {
             session = saved
+            applyBounces()
             send(.relaunch)
             if session?.config.studiesElsewhere == true && session?.isFocusing == true { startFloatingTimer() }
         }
         LockDetector.shared.onEvent = { [weak self] event in self?.detector(event) }
+        importCourses()
         refreshReminders()
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.tick() }
         RunLoop.main.add(timer, forMode: .common)
@@ -47,7 +49,8 @@ final class SessionController: ObservableObject {
 
     // MARK: - Commands
 
-    func start(preset: Preset, strictness: Strictness, subjectID: UUID?, intent: String, studyApp: StudyApp? = nil) {
+    func start(preset: Preset, strictness: Strictness, subjectID: UUID?, intent: String, studyApp: StudyApp? = nil,
+               topicID: UUID? = nil) {
         celebration = nil
         unfinished = nil
         studyHint = nil
@@ -60,7 +63,8 @@ final class SessionController: ObservableObject {
             graceSeconds: AppEnv.value(after: "-uitest-grace").flatMap(Double.init) ?? Double(prefs.graceSeconds),
             secondsPerMinute: AppEnv.secondsPerMinute,
             dayStartHour: prefs.dayStartHour,
-            studyAppID: studyApp?.id)
+            studyAppID: studyApp?.id,
+            topicID: topicID)
         let (session, effects) = SessionEngine.start(config, now: .now())
         self.session = session
         run(effects)
@@ -126,6 +130,23 @@ final class SessionController: ObservableObject {
         syncNoise()
     }
 
+    /// Focus Guard noted distracting apps while Ember was away. In Ember-only blocks the trip
+    /// away itself is judged; when studying in another app, a bounce starts the allowed time.
+    private func applyBounces() {
+        let bounces = FocusGuard.takeBounces()
+        guard session?.config.studiesElsewhere == true else { return }
+        let now = Instant.now()
+        for date in bounces {
+            send(.distracted(at: Instant(wall: date, mono: now.mono - now.wall.timeIntervalSince(date))))
+        }
+    }
+
+    /// "I'm still studying" on the check-in notification, possibly with Ember in the background.
+    func checkIn() {
+        applyBounces()
+        send(.checkIn)
+    }
+
     /// Sets the distraction tag on a block that ended early, then closes the screen.
     func closeUnfinished(tag: String?) {
         if let tag, let id = unfinished?.record.id,
@@ -139,6 +160,32 @@ final class SessionController: ObservableObject {
         if let i = store.data.sessions.firstIndex(where: { $0.id == id }) {
             store.data.sessions[i].intentResult = result
         }
+    }
+
+    /// Course files dropped into Documents/Import (see `Importer`).
+    func importCourses() {
+        var data = store.data
+        if Importer.run(into: &data) > 0 { store.data = data }
+    }
+
+    /// "How well do you know it now?" after a block on a topic. Returns the topic before and after.
+    @discardableResult
+    func rateTopic(_ id: UUID, _ rating: TopicRating) -> (before: Topic, after: Topic)? {
+        guard let i = store.data.topics.firstIndex(where: { $0.id == id }) else { return nil }
+        let before = store.data.topics[i]
+        let after = TopicProgress.rate(before, rating, now: Date())
+        store.data.topics[i] = after
+        return (before, after)
+    }
+
+    /// Saves a mock exam's score on the block and ticks off the past paper it was.
+    func savePaper(_ paperID: UUID?, score: String, for recordID: UUID) {
+        setExamScore(score, for: recordID)
+        let trimmed = score.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let paperID, let i = store.data.papers.firstIndex(where: { $0.id == paperID }) else { return }
+        store.data.papers[i].done = true
+        store.data.papers[i].doneAt = Date()
+        store.data.papers[i].score = trimmed.isEmpty ? nil : trimmed
     }
 
     func setExamScore(_ score: String, for id: UUID) {
@@ -175,10 +222,9 @@ final class SessionController: ObservableObject {
             store.saveNow()
             refreshReminders()
         case .active:
+            applyBounces()
             send(.active)
-            // In Ember-only blocks the trip away already counts as a slip; when studying in
-            // another app, the bounce is the only sign of the distraction.
-            for _ in FocusGuard.takeBounces() where session?.config.studiesElsewhere == true { send(.distracted) }
+            importCourses()
         case let .darwinLock(at):
             lastDarwinLock = at
             send(.lock(.darwin, at: at))
@@ -254,6 +300,10 @@ final class SessionController: ObservableObject {
             return .init(title: "5 minutes done", body: "Nice start. It carries on as Flowtime; finish whenever you like.", sound: .cue)
         case .pauseOver:
             return .init(title: "Pause over", body: "Your block is running again.", sound: .cue)
+        case .checkIn:
+            return Notifier.checkInContent(minutes: Int((session?.config.graceSeconds ?? 600) / 60))
+        case .awayEnd:
+            return Notifier.awayEndContent
         }
     }
 }

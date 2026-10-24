@@ -1,5 +1,6 @@
 import AppIntents
 import Foundation
+import UserNotifications
 
 /// Focus Guard: a Shortcuts automation on YouTube, Instagram or games asks this, and opens
 /// Ember when it is true, so a block bounces him straight back. App Intents need no special
@@ -11,10 +12,15 @@ struct IsFocusingIntent: AppIntent {
     static var openAppWhenRun = false
 
     func perform() async throws -> some IntentResult & ReturnsValue<Bool> {
-        let focusing = FocusGuard.isFocusing()
-        // The automation only asks when a distracting app opens, so a "yes" is a bounce.
-        if focusing { FocusGuard.recordBounce() }
-        return .result(value: focusing)
+        guard let session = FocusGuard.activeSession(), session.isFocusing else { return .result(value: false) }
+        // The automation only asks when a distracting app opens.
+        FocusGuard.recordBounce()
+        guard session.config.checksIn else { return .result(value: true) }
+        // With time allowed away, he isn't sent back; Ember checks in when the time is up.
+        if session.config.studiesElsewhere {
+            await FocusGuard.scheduleCheckIn(after: session.config.graceSeconds)
+        }
+        return .result(value: false)
     }
 }
 
@@ -48,10 +54,20 @@ enum FocusGuard {
 
     /// Reads the saved session without starting the session controller, so a background
     /// launch for the intent never judges an absence.
-    static func isFocusing() -> Bool {
+    static func activeSession() -> ActiveSession? {
         let url = AppEnv.dataRoot.appendingPathComponent("active.json")
-        guard let raw = try? Data(contentsOf: url),
-              let session = try? JSONDecoder.ember.decode(ActiveSession.self, from: raw) else { return false }
-        return session.isFocusing
+        guard let raw = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder.ember.decode(ActiveSession.self, from: raw)
+    }
+
+    static func isFocusing() -> Bool { activeSession()?.isFocusing == true }
+
+    /// Starts the allowed time from now, unless a check-in is already on its way.
+    static func scheduleCheckIn(after seconds: Double) async {
+        let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        guard !pending.contains(where: { $0.identifier == SessionNotice.checkIn.rawValue }) else { return }
+        let at = Date().addingTimeInterval(seconds)
+        Notifier.schedule(.checkIn, at: at, content: Notifier.checkInContent(minutes: Int(seconds / 60)))
+        Notifier.schedule(.awayEnd, at: at.addingTimeInterval(SessionEngine.checkInWindow), content: Notifier.awayEndContent)
     }
 }

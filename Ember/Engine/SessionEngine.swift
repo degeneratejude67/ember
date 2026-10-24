@@ -13,8 +13,12 @@ struct SessionConfig: Codable, Equatable {
     /// Studying inside another app (CollaNote, Slate...): time away from Ember counts as
     /// focus, and Focus Guard bounces count as slips.
     var studyAppID: String?
+    /// The course topic for this block.
+    var topicID: UUID?
 
     var studiesElsewhere: Bool { studyAppID != nil }
+    /// From 2 minutes of allowed time away, Ember checks in instead of ending the block.
+    var checksIn: Bool { graceSeconds >= 120 }
 }
 
 enum SessionPhase: String, Codable {
@@ -34,6 +38,11 @@ struct AwayRecord: Codable, Equatable {
     var backgroundAt: Instant?
     var lockedAt: Instant?
     var lockSource: LockSource?
+    /// He answered "Still studying?" here; the allowed time away starts again from this moment.
+    var checkedInAt: Instant?
+    /// Studying in another app: Focus Guard saw a distracting app open here, which starts the
+    /// allowed time.
+    var distractedAt: Instant?
 }
 
 /// The running session, saved to active.json on every change so a relaunch can pick it up.
@@ -86,8 +95,10 @@ enum SessionEvent: Equatable {
     /// The app started with a saved session.
     case relaunch
     case addParking(String)
-    /// Focus Guard caught a distracting app (YouTube, games) and sent him back.
-    case distracted
+    /// Focus Guard saw a distracting app (YouTube, games) open.
+    case distracted(at: Instant)
+    /// He answered "I'm still studying" to the check-in.
+    case checkIn
 }
 
 /// Local notifications owned by the session; the raw value is the request identifier.
@@ -99,8 +110,13 @@ enum SessionNotice: String, CaseIterable {
     case last15 = "s.cue.15"
     case starter = "s.starter"
     case pauseOver = "s.pause"
+    /// "Still studying?" when the allowed time away is up.
+    case checkIn = "s.checkin"
+    /// The block ended because the check-in got no answer.
+    case awayEnd = "s.away"
 
-    static let block: [SessionNotice] = [.blockEnd, .half, .last15, .starter, .pauseOver]
+    static let block: [SessionNotice] = [.blockEnd, .half, .last15, .starter, .pauseOver, .checkIn, .awayEnd]
+    static let away: [SessionNotice] = [.nudge, .checkIn, .awayEnd]
 }
 
 /// What the controller must do after an event.
@@ -127,6 +143,8 @@ enum SessionEngine {
     static let darwinWindow = 2.0
     static let protectedWindow = 13.0
     static let nudgeDelay = 3.0
+    /// How long the check-in waits for an answer before the block ends.
+    static let checkInWindow = 60.0
     /// Cues and chimes play only if they were crossed this recently (otherwise a notification
     /// already rang).
     static let cueWindow = 3.0
@@ -267,7 +285,11 @@ enum SessionEngine {
             away.backgroundAt = now
             s.away = away
             if s.isFocusing && s.config.strictness.polices && away.lockedAt == nil && !s.config.studiesElsewhere {
-                effects.append(.schedule(.nudge, at: now.wall.addingTimeInterval(nudgeDelay)))
+                if s.config.checksIn {
+                    effects += checkInNotices(from: away.checkedInAt ?? now, s)
+                } else {
+                    effects.append(.schedule(.nudge, at: now.wall.addingTimeInterval(nudgeDelay)))
+                }
             }
             effects.append(.save)
 
@@ -277,10 +299,10 @@ enum SessionEngine {
             away.lockedAt = at
             away.lockSource = source
             s.away = away
-            effects += [.cancel([.nudge]), .save]
+            effects += [.cancel(SessionNotice.away), .save]
 
         case .active:
-            effects.append(.cancel([.nudge]))
+            effects.append(.cancel(SessionNotice.away))
             if let away = s.away {
                 s.away = nil
                 state = s
@@ -310,9 +332,28 @@ enum SessionEngine {
             }
             effects.append(.save)
 
-        case .distracted:
+        case let .distracted(at):
             guard s.isFocusing else { return [] }
             s.slips += 1
+            if s.config.studiesElsewhere, s.config.checksIn, var away = s.away {
+                // a check-in after the last distraction cleared it
+                let cleared = away.checkedInAt.map { checked in away.distractedAt.map { checked.mono > $0.mono } ?? true } ?? false
+                if away.distractedAt == nil || cleared {
+                    away.distractedAt = at
+                    s.away = away
+                    effects += checkInNotices(from: at, s)
+                }
+            }
+            effects.append(.save)
+
+        case .checkIn:
+            guard s.isFocusing, var away = s.away else { return [] }
+            away.checkedInAt = now
+            s.away = away
+            effects.append(.cancel([.checkIn, .awayEnd]))
+            if !s.config.studiesElsewhere && s.config.checksIn {
+                effects += checkInNotices(from: now, s)
+            }
             effects.append(.save)
 
         case let .addParking(text):
@@ -429,16 +470,39 @@ enum SessionEngine {
         guard s.isFocusing else { return [] }
         guard let left = away.backgroundAt ?? (relaunch ? away.inactiveAt : nil) else { return [] }
         if let planned = s.plannedSeconds, focusElapsed(s, at: left) >= planned { return [] }
-        if away.lockedAt != nil || !s.config.strictness.polices || s.config.studiesElsewhere { return [] }
-        let gone = left.seconds(to: now)
-        if gone <= s.config.graceSeconds {
-            s.slips += 1
+        if away.lockedAt != nil || !s.config.strictness.polices { return [] }
+
+        // The allowed time away runs from leaving (or the last check-in); when studying in
+        // another app, only from Focus Guard seeing a distracting app.
+        let clock: Instant
+        if s.config.studiesElsewhere {
+            guard s.config.checksIn, let distracted = away.distractedAt,
+                  away.checkedInAt.map({ $0.mono < distracted.mono }) ?? true else { return [] }
+            clock = distracted
+        } else {
+            clock = away.checkedInAt ?? left
+        }
+        let allowance = s.config.graceSeconds
+        let window = s.config.checksIn ? checkInWindow : 0
+        if clock.seconds(to: now) <= allowance + window {
+            if !s.config.studiesElsewhere { s.slips += 1 }
             state = s
             return [.save]
         }
-        if let planned = s.plannedSeconds, focusElapsed(s, at: left.adding(s.config.graceSeconds)) >= planned { return [] }
+        // Out of time; the block still completes if it would have ended first.
+        let deadline = clock.adding(allowance + window)
+        if let planned = s.plannedSeconds, focusElapsed(s, at: deadline) >= planned { return [] }
         state = nil
-        return fail(s, reason: .left, countedUntil: left, awaySeconds: gone)
+        return fail(s, reason: s.config.checksIn ? .noAnswer : .left,
+                    countedUntil: s.config.checksIn ? clock.adding(allowance) : left,
+                    awaySeconds: left.seconds(to: now))
+    }
+
+    /// "Still studying?" when the allowed time is up, and the notice that the block ended a
+    /// minute later if there was no answer.
+    static func checkInNotices(from clock: Instant, _ s: ActiveSession) -> [Effect] {
+        let at = clock.wall.addingTimeInterval(s.config.graceSeconds)
+        return [.schedule(.checkIn, at: at), .schedule(.awayEnd, at: at.addingTimeInterval(checkInWindow))]
     }
 
     // MARK: - Ending blocks
@@ -446,7 +510,7 @@ enum SessionEngine {
     static func complete(_ state: inout ActiveSession?, at end: Instant, now: Instant) -> [Effect] {
         guard var s = state else { return [] }
         let record = makeRecord(s, outcome: .completed, reason: .finished, end: end)
-        var effects: [Effect] = [.record(record), .celebrate(record), .cancel(SessionNotice.block + [.nudge])]
+        var effects: [Effect] = [.record(record), .celebrate(record), .cancel(SessionNotice.block + SessionNotice.away)]
         if let length = breakLength(s, focusedMinutes: record.minutes) {
             s.phase = .breakTime
             s.breakStart = end
@@ -513,7 +577,8 @@ enum SessionEngine {
             slips: s.slips,
             outcome: outcome,
             reason: reason,
-            parking: s.parking)
+            parking: s.parking,
+            topicID: s.config.topicID)
     }
 
     // MARK: - Helpers

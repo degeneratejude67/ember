@@ -140,6 +140,8 @@ enum Outcome: String, Codable {
 
 enum EndReason: String, Codable {
     case finished, gaveUp, left, interrupted
+    /// Away past the allowed time, with no answer to the check-in.
+    case noAnswer
 }
 
 /// One finished block in the history.
@@ -169,6 +171,8 @@ struct SessionRecord: Codable, Identifiable, Equatable {
     /// The goal line's result: done, partly or notYet.
     var intentResult: String?
     var parking: [String] = []
+    /// The course topic this block was on.
+    var topicID: UUID?
     var examScore: String?
     /// Set when the break after this block ends: true if he stayed off the iPad.
     var cleanBreak: Bool?

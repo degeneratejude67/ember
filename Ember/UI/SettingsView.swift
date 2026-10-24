@@ -20,9 +20,14 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Picker("Grace time", selection: $store.data.prefs.graceSeconds) {
-                        ForEach([5, 10, 20, 30], id: \.self) { Text("\($0) seconds").tag($0) }
+                    Picker("Time allowed in other apps", selection: $store.data.prefs.graceSeconds) {
+                        Text("10 seconds (strict)").tag(10)
+                        Text("2 minutes").tag(120)
+                        Text("5 minutes").tag(300)
+                        Text("10 minutes").tag(600)
+                        Text("15 minutes").tag(900)
                     }
+                    .accessibilityIdentifier("allowance-picker")
                     Picker("Mode for new blocks", selection: $store.data.prefs.strictness) {
                         ForEach(Strictness.allCases) { Text($0.label).tag($0) }
                     }
@@ -31,7 +36,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Deep Focus")
                 } footer: {
-                    Text("Leaving Ember for longer than the grace time ends the block. Locking the screen and Split View are fine.")
+                    Text("Look something up in Safari or Gemini, answer a message: the block keeps running. When the time is up, Ember asks \u{201C}Still studying?\u{201D} and the block ends only if there's no answer within a minute. Locking the screen and Split View are always fine.")
                 }
 
                 Section("Timer") {

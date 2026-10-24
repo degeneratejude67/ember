@@ -49,6 +49,32 @@ enum Fixtures {
             }
         }
         data.sessions = sessions
+        // IC Engines has topics in two sections and past papers, some done.
+        let engines = subjects[2].id
+        let titles: [(String, String, Int, TopicStatus)] = [
+            ("Engine types and the two-stroke cycle", "Anup Sir", 18, .mastered),
+            ("Air-standard cycles", "Anup Sir", 27, .reviewed),
+            ("Fuel-air cycles and real losses", "Anup Sir", 12, .learning),
+            ("Carburettors and fuel metering", "Anup Sir", 35, .notStarted),
+            ("Combustion in SI engines and knock", "Monjur Sir", 31, .reviewed),
+            ("Combustion in CI engines", "Monjur Sir", 22, .learning),
+            ("Air capacity and supercharging", "Monjur Sir", 40, .notStarted),
+            ("Emissions and their control", "Monjur Sir", 41, .notStarted),
+        ]
+        for (i, entry) in titles.enumerated() {
+            var topic = Topic(subjectID: engines, title: entry.0, group: entry.1, order: i, asked: entry.2, starred: entry.2 >= 35)
+            topic = entry.3 == .notStarted ? topic : TopicProgress.set(topic, status: entry.3, now: now.addingTimeInterval(-3 * 86_400))
+            data.topics.append(topic)
+        }
+        for (i, session) in ["2023-24", "2022-23", "2021-22", "2020-21", "2019-20"].enumerated() {
+            var paper = PastPaper(subjectID: engines, session: session)
+            if i >= 3 {
+                paper.done = true
+                paper.score = i == 3 ? "148 / 210" : "131 / 210"
+            }
+            data.papers.append(paper)
+        }
+        data.prefs.topicID = data.topics.first { $0.status == .learning }?.id
         return data
     }
 

@@ -69,6 +69,9 @@ struct CompleteStep: View {
     @State private var intentAnswer: String?
     @State private var score = ""
     @State private var scoreSaved = false
+    @State private var paperID: UUID?
+    @State private var rated: (before: Topic, after: Topic)?
+    @ObservedObject private var store = Store.shared
 
     private var record: SessionRecord { summary.record }
     /// Guided Access was on for 90% of the block or more.
@@ -103,6 +106,10 @@ struct CompleteStep: View {
                     if beats.stage >= 4 && !summary.extendedStreak {
                         progressLine
                             .transition(.scale.combined(with: .opacity))
+                    }
+                    if beats.stage >= 5, let topic = store.data.topic(record.topicID) {
+                        topicCheck(topic)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                     if beats.stage >= 5 && !record.intent.isEmpty {
                         intentCheck
@@ -170,6 +177,50 @@ struct CompleteStep: View {
         .frame(maxWidth: 520)
     }
 
+    /// After a block on a topic: how well he knows it now moves it up or down the review ladder.
+    private func topicCheck(_ topic: Topic) -> some View {
+        Card {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("How well do you know \u{201C}\(topic.title)\u{201D} now?")
+                    .font(.rounded(16, .semibold))
+                    .foregroundStyle(Theme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let rated {
+                    Label(ratedLine(rated), systemImage: rated.after.status.icon)
+                        .font(.rounded(15, .bold))
+                        .foregroundStyle(rated.after.status.weight > rated.before.status.weight ? Theme.gold : Theme.teal)
+                        .accessibilityIdentifier("topic-rated")
+                } else {
+                    HStack(spacing: 10) {
+                        ForEach(TopicRating.allCases) { rating in
+                            Button(rating.label) {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                                    rated = controller.rateTopic(topic.id, rating)
+                                }
+                                if rating == .solid { Audio.shared.play(.tick(7)) }
+                            }
+                            .font(.rounded(15, .bold))
+                            .foregroundStyle(Theme.text)
+                            .frame(maxWidth: .infinity, minHeight: 42)
+                            .background(Theme.cardHigh, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .accessibilityIdentifier("rate-\(rating.rawValue)")
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: 520)
+    }
+
+    private func ratedLine(_ rated: (before: Topic, after: Topic)) -> String {
+        let days = TopicProgress.intervals[rated.after.reviewStep]
+        let review = days == 1 ? "Review tomorrow." : "Review in \(days) days."
+        if rated.after.status != rated.before.status && rated.after.status.weight > rated.before.status.weight {
+            return "Leveled up to \(rated.after.status.label)! \(review)"
+        }
+        return "\(rated.after.status.label). \(review)"
+    }
+
     /// Mock exams: mark it with the past paper's answers, then note the score.
     private var scoreCard: some View {
         Card {
@@ -177,6 +228,15 @@ struct CompleteStep: View {
                 Text("Mark it, then note your score")
                     .font(.rounded(16, .semibold))
                     .foregroundStyle(Theme.text)
+                let papers = store.data.papers(of: record.subjectID)
+                if !papers.isEmpty {
+                    Picker("Paper", selection: $paperID) {
+                        Text("Which paper?").tag(UUID?.none)
+                        ForEach(papers) { Text($0.session).tag(UUID?.some($0.id)) }
+                    }
+                    .pickerStyle(.menu)
+                    .tint(Theme.ember)
+                }
                 HStack(spacing: 10) {
                     TextField("e.g. 142 / 210", text: $score)
                         .font(.rounded(17, .semibold))
@@ -185,7 +245,7 @@ struct CompleteStep: View {
                         .background(Theme.cardHigh, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .accessibilityIdentifier("exam-score")
                     Button(scoreSaved ? "Saved" : "Save") {
-                        controller.setExamScore(score, for: record.id)
+                        controller.savePaper(paperID, score: score, for: record.id)
                         scoreSaved = true
                     }
                     .font(.rounded(15, .bold))

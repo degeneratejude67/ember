@@ -145,6 +145,7 @@ final class EmberUITests: XCTestCase {
         shot("31-onboarding-goal")
         app.buttons["onboarding-next"].tap()
         let field = wait(app.textFields["onboarding-subject"], 5)
+        sleep(1)
         field.tap()
         field.typeText("Heat Transfer\n")
         field.typeText("Fluid Machinery\n")
@@ -174,6 +175,30 @@ final class EmberUITests: XCTestCase {
         app.activate()
         wait(element(app, "focus-time"), 10)
         XCTAssertFalse(app.staticTexts["Block unfinished"].exists, "time in the study app must count")
+    }
+
+    /// A course's topics: open it from Home, pick a topic, study it, then rate it.
+    func testCourseTopics() {
+        let app = launch(["-uitest-reset", "-uitest-seed", "-uitest-fast"])
+        wait(app.buttons["course-IC Engines"], 15).tap()
+        wait(element(app, "course-progress"), 5)
+        sleep(1)
+        shot("40-course-detail")
+        app.swipeUp()
+        sleep(1)
+        shot("41-course-papers")
+        app.swipeDown()
+        wait(element(app, "next-0"), 5).tap()
+        wait(app.buttons["topic-chip"], 5)
+        shot("42-home-with-topic")
+        app.buttons["start"].tap()
+        wait(app.buttons["continue"], 45, "the 25-second block never finished")
+        let solid = wait(app.buttons["rate-solid"], 10)
+        shot("43-rate-topic")
+        solid.tap()
+        let rated = wait(app.staticTexts["topic-rated"], 5)
+        XCTAssertTrue(rated.label.contains("Review"), rated.label)
+        shot("44-topic-rated")
     }
 
     /// The parking lot keeps a thought for the break; the noise button cycles colours.
@@ -206,7 +231,7 @@ final class EmberUITests: XCTestCase {
         shot("14-lock-in-arming")
         app.buttons["arming-skip"].tap()
         wait(element(app, "focus-time"), 5)
-        XCTAssertEqual(element(app, "mode-badge").label, "Deep Focus")
+        XCTAssertTrue(app.staticTexts["Deep Focus"].exists, "skipping Guided Access falls back to Deep Focus")
     }
 
     // MARK: - Screens

@@ -78,6 +78,9 @@ struct UnfinishedView: View {
             return "You left Ember for \(text). The flame couldn't wait."
         case .gaveUp:
             return "You gave up on this one. That's allowed."
+        case .noAnswer:
+            let away = Int((info.awaySeconds ?? 0) / 60)
+            return "You were away for \(away) min and didn't answer Ember's check-in."
         default:
             return "This block didn't finish."
         }

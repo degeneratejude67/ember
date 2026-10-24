@@ -284,7 +284,9 @@ struct FocusView: View {
 
     @ViewBuilder private func footnote(_ s: ActiveSession) -> some View {
         if s.config.strictness.polices && !s.config.studiesElsewhere {
-            Text("Leaving Ember for more than \(Int(s.config.graceSeconds)) s ends the block. Locking the screen is fine.")
+            Text(s.config.checksIn
+                 ? "You can leave Ember for up to \(Int(s.config.graceSeconds / 60)) min; then it checks in. Locking the screen is fine."
+                 : "Leaving Ember for more than \(Int(s.config.graceSeconds)) s ends the block. Locking the screen is fine.")
                 .font(.rounded(13, .medium))
                 .foregroundStyle(Theme.dim)
                 .multilineTextAlignment(.center)
