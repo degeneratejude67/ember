@@ -8,7 +8,7 @@ struct EmberApp: App {
 
     var body: some Scene {
         WindowGroup {
-            HomeView()
+            RootView()
                 .preferredColorScheme(.dark)
                 .tint(Theme.ember)
                 .onChange(of: scenePhase) { _, phase in LockDetector.shared.scene(phase) }
@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         UNUserNotificationCenter.current().delegate = self
         LockDetector.shared.start()
         Audio.shared.preload()
+        _ = SessionController.shared
         return true
     }
 

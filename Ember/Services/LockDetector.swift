@@ -2,10 +2,18 @@ import SwiftUI
 import UIKit
 import UserNotifications
 
+/// What the detector reports to the session.
+enum DetectorEvent {
+    case inactive, background, active
+    case darwinLock(Instant)
+    case protectedLost(Instant)
+    case guidedAccess(Bool)
+}
+
 /// Watches everything that can tell "locked the screen" apart from "left the app": the app
 /// lifecycle, SpringBoard's darwin notifications, protected-data availability, screen
-/// brightness and Guided Access. For now it records what it sees in the Lock Lab log, judges
-/// each absence the way Deep Focus will, and tries the leave nudge.
+/// brightness and Guided Access. It forwards these to the session (`onEvent`), records them
+/// in the Lock Lab log, judges each absence there, and runs the Lock Lab's nudge test.
 final class LockDetector: ObservableObject {
     static let shared = LockDetector()
 
@@ -23,6 +31,7 @@ final class LockDetector: ObservableObject {
     @Published var nudgeArmed = false
     @Published private(set) var lastVerdict = "No absence yet."
     @Published private(set) var guidedAccess = UIAccessibility.isGuidedAccessEnabled
+    var onEvent: ((DetectorEvent) -> Void)?
 
     private let log = LabLog.shared
     private var observers: [NSObjectProtocol] = []
@@ -64,6 +73,7 @@ final class LockDetector: ObservableObject {
             let enabled = UIAccessibility.isGuidedAccessEnabled
             detector.guidedAccess = enabled
             detector.log.add("guidedAccess", enabled ? "on" : "off")
+            detector.onEvent?(.guidedAccess(enabled))
         }
 
         let darwin = CFNotificationCenterGetDarwinNotifyCenter()
@@ -98,6 +108,7 @@ final class LockDetector: ObservableObject {
     private func resignedActive() {
         away = Away(inactiveAt: .now())
         log.add("app.willResignActive", brightnessText)
+        onEvent?(.inactive)
     }
 
     private func enteredBackground() {
@@ -110,11 +121,13 @@ final class LockDetector: ObservableObject {
         }
         beginBackgroundWatch()
         if nudgeArmed && away.darwinLockAt == nil { scheduleNudge() }
+        onEvent?(.background)
     }
 
     private func becameActive() {
         endBackgroundWatch()
         log.add("app.didBecomeActive", "\(offsetText()) \(brightnessText)")
+        onEvent?(.active)
         defer { away = Away() }
         guard let left = away.leftAt else { return }
         let total = left.seconds(to: .now())
@@ -141,6 +154,7 @@ final class LockDetector: ObservableObject {
         log.add("darwin.\(short)", offsetText())
         guard short == "lockcomplete" else { return }
         lastDarwinLock = now
+        onEvent?(.darwinLock(now))
         if let left = away.leftAt, away.darwinLockAt == nil, left.gap(now) <= Self.directLockWindow {
             away.darwinLockAt = now
             cancelNudge(reason: "darwin lock")
@@ -148,7 +162,11 @@ final class LockDetector: ObservableObject {
     }
 
     private func protectedLost(_ source: String) {
-        if away.leftAt != nil, away.protectedLostAt == nil { away.protectedLostAt = .now() }
+        let now = Instant.now()
+        if away.leftAt != nil, away.protectedLostAt == nil {
+            away.protectedLostAt = now
+            onEvent?(.protectedLost(now))
+        }
         log.add("protected.lost", "\(source) \(offsetText())")
     }
 

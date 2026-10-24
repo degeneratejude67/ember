@@ -154,7 +154,8 @@ struct MascotFace: View {
             let ink = GraphicsContext.Shading.color(Self.ink)
             let line = StrokeStyle(lineWidth: max(1.5, 0.022 * w), lineCap: .round, lineJoin: .round)
             let eyeW = 0.075 * w, eyeH = 0.11 * h
-            let blinking = t.truncatingRemainder(dividingBy: 3.7) < 0.14
+            // t is 0 when the flame is still (screenshots): eyes open then
+            let blinking = t > 0 && (t + 1).truncatingRemainder(dividingBy: 3.7) < 0.14
             let eyes = [0.40, 0.60]
 
             func roundEyes(scale: Double = 1, squint: Double = 1) {

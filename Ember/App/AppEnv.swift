@@ -26,6 +26,12 @@ enum AppEnv {
         guard let i = arguments.firstIndex(of: flag), i + 1 < arguments.count else { return nil }
         return arguments[i + 1]
     }
+
+    /// `-uitest-fast` turns preset minutes into seconds, so a Pomodoro takes 25 s.
+    static let secondsPerMinute: Double = isUITest && arguments.contains("-uitest-fast") ? 1 : 60
+
+    /// `-uitest-still` stops the flicker and jumps animations to their end, for steady screenshots.
+    static let still = isUITest && arguments.contains("-uitest-still")
 }
 
 /// Reads the signing expiry from the provisioning profile embedded by the signer, so the

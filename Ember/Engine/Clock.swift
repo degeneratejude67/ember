@@ -21,4 +21,8 @@ struct Instant: Codable, Equatable {
     func gap(_ other: Instant) -> Double {
         other.mono >= mono ? seconds(to: other) : other.seconds(to: self)
     }
+
+    func adding(_ seconds: Double) -> Instant {
+        Instant(wall: wall.addingTimeInterval(seconds), mono: mono + seconds)
+    }
 }
