@@ -59,8 +59,7 @@ final class FloatingTimer: NSObject, ObservableObject {
     private func prepareController() {
         guard controller == nil, Self.isSupported, !AppEnv.isUITest else { return }
         // PiP needs a playback audio session; it stays silent and mixes with other audio.
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
-        try? AVAudioSession.sharedInstance().setActive(true)
+        Audio.shared.refreshSession()
         let source = AVPictureInPictureController.ContentSource(sampleBufferDisplayLayer: displayLayer, playbackDelegate: self)
         let pip = AVPictureInPictureController(contentSource: source)
         pip.canStartPictureInPictureAutomaticallyFromInline = true

@@ -38,39 +38,80 @@ final class Audio: ObservableObject {
         didSet { noiseEngine.volume = noiseVolume }
     }
 
-    private var players: [SoundEffect: AVAudioPlayer] = [:]
     private let noiseEngine = NoiseEngine()
+    /// AVAudioSession and AVAudioPlayer calls are synchronous trips to the audio server, which
+    /// can stall for seconds (it froze a whole celebration on CI), so effects play on this queue
+    /// and never hold up the UI. `players` and `category` are only touched on it.
+    private let queue = DispatchQueue(label: "app.ember.audio", qos: .userInteractive)
+    private var players: [SoundEffect: AVAudioPlayer] = [:]
+    /// The category last set, so the session is only reconfigured when it has to change.
+    private var category: AVAudioSession.Category?
 
     private init() {
         NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
-            guard let self, let noise = self.noise,
-                  let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+            guard let self, let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
                   AVAudioSession.InterruptionType(rawValue: raw) == .ended else { return }
-            self.noiseEngine.start(noise)
+            // the interruption deactivated the session; set it up again on the next use
+            self.queue.async { self.category = nil }
+            if let noise = self.noise {
+                self.refreshSession()
+                self.noiseEngine.start(noise)
+            }
+        }
+        NotificationCenter.default.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: nil) { [weak self] _ in
+            // every audio object is invalid after a reset
+            guard let self else { return }
+            self.queue.async {
+                self.category = nil
+                self.players = [:]
+            }
         }
     }
 
     /// Loads every effect once, so the first play has no delay.
     func preload() {
-        for effect in SoundEffect.allCases { _ = player(for: effect) }
+        let wanted = wantedCategory
+        queue.async {
+            self.apply(wanted)
+            for effect in SoundEffect.allCases { _ = self.player(for: effect) }
+        }
     }
 
     func play(_ effect: SoundEffect) {
-        guard effectsOn, let player = player(for: effect) else { return }
-        configureSession()
-        player.currentTime = 0
-        player.play()
+        guard effectsOn else { return }
+        let wanted = wantedCategory
+        let asked = DispatchTime.now().uptimeNanoseconds
+        queue.async {
+            // a sound held up by a stalled audio server is dropped rather than played late
+            guard DispatchTime.now().uptimeNanoseconds - asked < 1_000_000_000,
+                  let player = self.player(for: effect) else { return }
+            self.apply(wanted)
+            player.currentTime = 0
+            player.play()
+        }
     }
 
     func setNoise(_ color: NoiseColor?) {
         noise = color
-        configureSession()
+        refreshSession()
         if let color {
             noiseEngine.volume = noiseVolume
             noiseEngine.start(color)
         } else {
             noiseEngine.stop()
         }
+    }
+
+    /// Sets the session up for what plays now and waits for it, so noise and the floating
+    /// timer start under the right category.
+    func refreshSession() {
+        let wanted = wantedCategory
+        queue.sync { apply(wanted) }
+    }
+
+    /// Noise and the floating timer both need a playback session.
+    private var wantedCategory: AVAudioSession.Category {
+        noise != nil || FloatingTimer.shared.isRunning ? .playback : .ambient
     }
 
     private func player(for effect: SoundEffect) -> AVAudioPlayer? {
@@ -82,15 +123,12 @@ final class Audio: ObservableObject {
         return player
     }
 
-    private func configureSession() {
+    private func apply(_ wanted: AVAudioSession.Category) {
+        guard wanted != category else { return }
         let session = AVAudioSession.sharedInstance()
-        // noise and the floating timer both need a playback session
-        if noise != nil || FloatingTimer.shared.isRunning {
-            try? session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-        } else {
-            try? session.setCategory(.ambient, mode: .default, options: [])
-        }
+        try? session.setCategory(wanted, mode: .default, options: wanted == .playback ? [.mixWithOthers] : [])
         try? session.setActive(true)
+        category = wanted
     }
 }
 
