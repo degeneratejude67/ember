@@ -187,7 +187,9 @@ struct CourseDetailView: View {
                     .foregroundStyle(pace.days <= 3 ? Theme.danger : Theme.gold)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text("The percentage counts slides, so a 60-slide lecture weighs six times a 10-slide one. \u{2605} marks the lectures asked most in past papers.")
+            Text(topics.contains(where: \.starred)
+                 ? "The percentage counts slides, so a 60-slide lecture weighs six times a 10-slide one. \u{2605} marks high-yield lectures."
+                 : "The percentage counts slides, so a 60-slide lecture weighs six times a 10-slide one.")
                 .font(.rounded(12, .medium))
                 .foregroundStyle(Theme.dim)
         }

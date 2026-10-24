@@ -1,10 +1,13 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @ObservedObject private var store = Store.shared
     @Environment(\.dismiss) private var dismiss
     @State private var exportURL: URL?
     @State private var guide: ModeSheet.Guide?
+    @State private var importing = false
+    @State private var importResult: String?
 
     var body: some View {
         let prefs = store.data.prefs
@@ -83,13 +86,25 @@ struct SettingsView: View {
                     NavigationLink("Sound check") { SoundCheckView() }
                 }
 
-                Section("Data") {
+                Section {
                     if let exportURL {
                         ShareLink(item: exportURL) {
                             Label("Export history (JSON)", systemImage: "square.and.arrow.up")
                         }
                     }
+                    Button {
+                        importing = true
+                    } label: {
+                        Label("Import courses (JSON)", systemImage: "square.and.arrow.down")
+                    }
+                    if let importResult {
+                        Text(importResult).font(.rounded(13, .medium)).foregroundStyle(Theme.dim)
+                    }
                     LabeledContent("Blocks saved", value: "\(store.data.sessions.count)")
+                } header: {
+                    Text("Data")
+                } footer: {
+                    Text("A course file lists courses, their lectures and slide counts: {\"courses\": [{\"name\": \"…\", \"topics\": [{\"title\": \"Lecture 1\", \"slides\": 40}]}]}. Courses already here are matched by name and only new lectures are added.")
                 }
             }
             .navigationTitle("Settings")
@@ -98,6 +113,9 @@ struct SettingsView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .onAppear { exportURL = store.exportFile() }
+            .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
+                importResult = importCourses(result)
+            }
             .onChange(of: prefs.noiseVolume) { _, volume in Audio.shared.noiseVolume = Float(volume) }
             .sheet(item: $guide) { which in
                 switch which {
@@ -107,5 +125,22 @@ struct SettingsView: View {
             }
         }
         .preferredColorScheme(.dark)
+    }
+
+    /// Copies a picked course file into Documents/Import and merges it.
+    private func importCourses(_ result: Result<URL, Error>) -> String {
+        guard case let .success(url) = result else { return "Nothing imported." }
+        let secured = url.startAccessingSecurityScopedResource()
+        defer { if secured { url.stopAccessingSecurityScopedResource() } }
+        let before = (store.data.subjects.count, store.data.topics.count)
+        let folder = AppEnv.dataRoot.appendingPathComponent("Import", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = folder.appendingPathComponent(url.lastPathComponent)
+        try? FileManager.default.removeItem(at: target)
+        guard (try? FileManager.default.copyItem(at: url, to: target)) != nil else { return "Couldn't read that file." }
+        SessionController.shared.importCourses()
+        let courses = store.data.subjects.count - before.0
+        let lectures = store.data.topics.count - before.1
+        return lectures == 0 && courses == 0 ? "Nothing new in that file." : "Added \(courses) courses and \(lectures) lectures."
     }
 }
